@@ -267,10 +267,11 @@ export declare namespace leaderboard {
   /**
    * Look up a leaderboard, creating it if it does not exist yet.
    *
-   * Leaderboards created this way are owned by the app and are not visible
-   * in the Steamworks partner site until the app is published. The sort
-   * method and display type only apply when the leaderboard is created;
-   * an existing leaderboard keeps its configured values.
+   * A leaderboard created this way does not show up in the Steam Community
+   * until a Community Name is set for it in the App Admin on the Steamworks
+   * site, and once created it can only be modified from that site. The sort
+   * method and display type therefore only apply when the leaderboard is
+   * created; an existing leaderboard keeps whatever it was configured with.
    * @returns null when Steam neither found nor created the leaderboard.
    */
   export function findOrCreateLeaderboard(name: string, sortMethod: LeaderboardSortMethod, displayType: LeaderboardDisplayType): Promise<Leaderboard | null>

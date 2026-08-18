@@ -5,11 +5,15 @@ pub mod matchmaking {
     use crate::api::localplayer::PlayerSteamId;
     use napi::bindgen_prelude::{BigInt, Error};
     use std::collections::HashMap;
+    use std::time::Duration;
     use steamworks::sys;
     use steamworks::{
         DistanceFilter, LobbyId, LobbyKey, Matchmaking, NearFilter, NumberFilter, StringFilter,
     };
     use tokio::sync::oneshot;
+
+    /// How long to wait for a Steam callback before giving up.
+    const STEAM_TIMEOUT: Duration = Duration::from_secs(15);
 
     #[napi]
     pub enum LobbyType {
@@ -253,12 +257,12 @@ pub mod matchmaking {
             },
             max_members,
             |result| {
-                tx.send(result).unwrap();
+                let _ = tx.send(result);
             },
         );
 
-        rx.await
-            .unwrap()
+        await_steam(rx, "lobby creation")
+            .await?
             .map(|lobby_id| Lobby {
                 id: BigInt::from(lobby_id.raw()),
                 lobby_id,
@@ -275,12 +279,12 @@ pub mod matchmaking {
         client.matchmaking().join_lobby(
             steamworks::LobbyId::from_raw(lobby_id.get_u64().1),
             |result| {
-                tx.send(result).unwrap();
+                let _ = tx.send(result);
             },
         );
 
-        rx.await
-            .unwrap()
+        await_steam(rx, "lobby join")
+            .await?
             .map(|lobby_id| Lobby {
                 id: BigInt::from(lobby_id.raw()),
                 lobby_id,
@@ -306,12 +310,12 @@ pub mod matchmaking {
             }
 
             matchmaking.request_lobby_list(|lobbies| {
-                tx.send(lobbies).unwrap();
+                let _ = tx.send(lobbies);
             });
         }
 
-        rx.await
-            .unwrap()
+        await_steam(rx, "lobby list")
+            .await?
             .map(|lobbies| {
                 lobbies
                     .iter()
@@ -322,6 +326,27 @@ pub mod matchmaking {
                     .collect()
             })
             .map_err(|e| Error::from_reason(e.to_string()))
+    }
+
+    /// Wait for a Steam callback, giving up instead of leaving the promise
+    /// pending forever.
+    ///
+    /// Steam answers a request it refuses outright with k_uAPICallInvalid and
+    /// the crate still registers the callback under that invalid handle, so
+    /// nothing would ever resolve it. The sender can also be dropped without
+    /// firing, for example when `init` is called a second time while a promise
+    /// is in flight and the previous client takes its callbacks with it.
+    async fn await_steam<T>(rx: oneshot::Receiver<T>, what: &str) -> Result<T, Error> {
+        match tokio::time::timeout(STEAM_TIMEOUT, rx).await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(_)) => Err(Error::from_reason(format!(
+                "Steam dropped the {what} callback"
+            ))),
+            Err(_) => Err(Error::from_reason(format!(
+                "Timed out waiting for Steam after {}s ({what})",
+                STEAM_TIMEOUT.as_secs()
+            ))),
+        }
     }
 
     fn apply_lobby_list_filter(

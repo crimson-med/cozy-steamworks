@@ -178,7 +178,7 @@ To cut a release: bump `version` in `package.json` and `package-lock.json`, merg
 
 - `node test/smoke.js` runs a single-machine check against a running Steam client (app 480): identity, lobby create and filtered list, self-owner transfer, friends list, leaderboard read, global stats request, loopback message. `SMOKE_INVITE=1` additionally sends a real lobby invite to your first friend.
 - `node test/friends.js` prints the friends list and checks its shape.
-- `node test/leaderboard.js` exercises the leaderboard surface against the Spacewar sample board, including a score upload.
+- `node test/leaderboard.js` exercises the leaderboard surface against the Spacewar sample board. `LEADERBOARD_UPLOAD=1` additionally writes a real score, which counts against Steam's roughly 10 uploads per 10 minutes per user.
 - `node test/global_stats.js` requests aggregated global stats and checks the getter return types.
 - `node test/networking_messages.js` on two machines exercises a real peer session.
 - `test/electron` runs the upstream Electron overlay test.

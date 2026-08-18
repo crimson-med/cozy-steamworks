@@ -172,8 +172,11 @@ async function main() {
         await client.global_stats.requestGlobalStats(1)
         pass('requestGlobalStats(1) resolved', `${Date.now() - t0}ms`)
     } catch (e) {
-        // A Steam-reported failure is fine here, a hang is not.
-        pass('requestGlobalStats(1) completed with a Steam error', e.message)
+        // A Steam EResult rejection still proves the call result plumbing. A
+        // timeout or a dropped callback means nothing ever came back.
+        /timed out|dropped/i.test(e.message)
+            ? fail('requestGlobalStats(1) never completed', e.message)
+            : pass('requestGlobalStats(1) completed with a Steam error', e.message)
     }
     try {
         const total = client.global_stats.getGlobalStatInt64('NumGames')

@@ -4,10 +4,15 @@ use napi_derive::napi;
 pub mod leaderboard {
     use crate::api::localplayer::PlayerSteamId;
     use napi::bindgen_prelude::{BigInt, Error};
+    use std::time::Duration;
     use tokio::sync::oneshot;
 
     /// Maximum number of detail ints Steam stores per leaderboard entry.
     const MAX_DETAILS: usize = 64;
+    /// k_cchLeaderboardNameMax. Steam rejects a longer name outright.
+    const MAX_NAME_LEN: usize = 128;
+    /// How long to wait for a Steam callback before giving up.
+    const STEAM_TIMEOUT: Duration = Duration::from_secs(15);
 
     /// Order Steam uses to rank scores (ELeaderboardSortMethod).
     #[napi]
@@ -179,8 +184,8 @@ pub mod leaderboard {
                 );
             }
 
-            rx.await
-                .map_err(|_| Error::from_reason("Steam dropped the score upload callback"))?
+            await_steam(rx, "score upload")
+                .await?
                 .map(|uploaded| {
                     uploaded.map(|u| LeaderboardScoreUploaded {
                         score: u.score,
@@ -255,8 +260,8 @@ pub mod leaderboard {
                 );
             }
 
-            rx.await
-                .map_err(|_| Error::from_reason("Steam dropped the leaderboard download callback"))?
+            await_steam(rx, "leaderboard download")
+                .await?
                 .map(|entries| {
                     entries
                         .into_iter()
@@ -302,10 +307,11 @@ pub mod leaderboard {
 
     /// Look up a leaderboard, creating it if it does not exist yet.
     ///
-    /// Leaderboards created this way are owned by the app and are not visible
-    /// in the Steamworks partner site until the app is published. The sort
-    /// method and display type only apply when the leaderboard is created;
-    /// an existing leaderboard keeps its configured values.
+    /// A leaderboard created this way does not show up in the Steam Community
+    /// until a Community Name is set for it in the App Admin on the Steamworks
+    /// site, and once created it can only be modified from that site. The sort
+    /// method and display type therefore only apply when the leaderboard is
+    /// created; an existing leaderboard keeps whatever it was configured with.
     /// @returns null when Steam neither found nor created the leaderboard.
     #[napi]
     pub async fn find_or_create_leaderboard(
@@ -348,14 +354,36 @@ pub mod leaderboard {
     async fn finish_find(
         rx: oneshot::Receiver<Result<Option<steamworks::Leaderboard>, steamworks::SteamError>>,
     ) -> Result<Option<Leaderboard>, Error> {
-        rx.await
-            .map_err(|_| Error::from_reason("Steam dropped the leaderboard lookup callback"))?
+        await_steam(rx, "leaderboard lookup")
+            .await?
             .map(|found| found.map(Leaderboard::from_handle))
             .map_err(|e| Error::from_reason(format!("{e:?}")))
     }
 
+    /// Wait for a Steam callback, giving up instead of leaving the promise
+    /// pending forever.
+    ///
+    /// Steam answers a request it refuses outright with k_uAPICallInvalid, for
+    /// example a stale leaderboard handle after a reconnect or a logged out
+    /// client. The crate registers the callback under that invalid handle
+    /// anyway, so nothing would ever resolve it.
+    async fn await_steam<T>(rx: oneshot::Receiver<T>, what: &str) -> Result<T, Error> {
+        match tokio::time::timeout(STEAM_TIMEOUT, rx).await {
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(_)) => Err(Error::from_reason(format!(
+                "Steam dropped the {what} callback"
+            ))),
+            Err(_) => Err(Error::from_reason(format!(
+                "Timed out waiting for Steam after {}s ({what})",
+                STEAM_TIMEOUT.as_secs()
+            ))),
+        }
+    }
+
     /// The crate builds a CString from the name and panics on a NUL byte, and
-    /// a panic through the Steam callback machinery aborts the process.
+    /// a panic through the Steam callback machinery aborts the process. An
+    /// over-long name is refused by Steam with k_uAPICallInvalid, which the
+    /// crate cannot report, so both are caught before the call is made.
     fn validate_name(name: &str) -> Result<(), Error> {
         if name.contains('\0') {
             return Err(Error::from_reason(format!(
@@ -364,6 +392,12 @@ pub mod leaderboard {
         }
         if name.is_empty() {
             return Err(Error::from_reason("Leaderboard name must not be empty"));
+        }
+        if name.len() > MAX_NAME_LEN {
+            return Err(Error::from_reason(format!(
+                "Leaderboard name may be at most {MAX_NAME_LEN} bytes, got {}",
+                name.len()
+            )));
         }
         Ok(())
     }

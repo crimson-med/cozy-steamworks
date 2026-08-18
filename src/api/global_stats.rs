@@ -3,10 +3,13 @@ use napi_derive::napi;
 #[napi]
 pub mod global_stats {
     use napi::bindgen_prelude::{BigInt, Error};
+    use std::time::Duration;
     use tokio::sync::oneshot;
 
     /// The SDK stores at most 60 days of aggregated history.
     const MAX_HISTORY_DAYS: u32 = 60;
+    /// How long to wait for a Steam callback before giving up.
+    const STEAM_TIMEOUT: Duration = Duration::from_secs(15);
 
     /// Request the aggregated global totals for this app's global stats, plus
     /// `historyDays` days of day-by-day history.
@@ -40,10 +43,22 @@ pub mod global_stats {
                 });
         }
 
-        rx.await
-            .map_err(|_| Error::from_reason("Steam dropped the global stats callback"))?
-            .map(|_| ())
-            .map_err(|e| Error::from_reason(format!("{e:?}")))
+        // Steam answers a request it refuses outright with k_uAPICallInvalid,
+        // for example when the client is logged out. The crate registers the
+        // callback under that invalid handle anyway, so nothing would ever
+        // resolve it and the promise would stay pending forever.
+        match tokio::time::timeout(STEAM_TIMEOUT, rx).await {
+            Ok(Ok(result)) => result
+                .map(|_| ())
+                .map_err(|e| Error::from_reason(format!("{e:?}"))),
+            Ok(Err(_)) => Err(Error::from_reason(
+                "Steam dropped the global stats callback",
+            )),
+            Err(_) => Err(Error::from_reason(format!(
+                "Timed out waiting for Steam after {}s (global stats request)",
+                STEAM_TIMEOUT.as_secs()
+            ))),
+        }
     }
 
     /// The aggregated lifetime total of an INT global stat.

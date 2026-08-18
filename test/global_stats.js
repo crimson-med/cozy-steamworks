@@ -21,13 +21,23 @@ async function main() {
     const started = Date.now()
     let requested = false
     try {
-        await globalStats.requestGlobalStats(7)
+        // The Rust side already gives up after 15s, but index.js keeps a 30Hz
+        // interval alive, so a promise that never settles would wedge this
+        // process instead of failing. Race a rejecting timer as a backstop.
+        await Promise.race([
+            globalStats.requestGlobalStats(7),
+            new Promise((_, reject) => {
+                const timer = setTimeout(() => reject(new Error('hung: no settle within 20s')), 20000)
+                timer.unref?.()
+            }),
+        ])
         requested = true
         check(true, 'requestGlobalStats(7) resolved', `${Date.now() - started}ms`)
     } catch (e) {
-        // A Steam-reported failure still proves the call result plumbing; a
-        // hang would not, and would surface as a timeout error here.
-        check(!/dropped/i.test(e.message), 'requestGlobalStats(7) completed with a Steam error', e.message)
+        // A Steam-reported failure still proves the call result plumbing. A
+        // hang or a dropped callback does not, so those fail.
+        const hung = /hung|timed out|dropped/i.test(e.message)
+        check(!hung, 'requestGlobalStats(7) completed with a Steam error', e.message)
     }
 
     const total = globalStats.getGlobalStatInt64('NumGames')

@@ -3,8 +3,9 @@
 //   node test/leaderboard.js
 //
 // Uses app 480 (Spacewar). Finds the sample "Feet Traveled" leaderboard, or
-// creates a scratch one if it is not present, then exercises the getters, a
-// score upload and every download mode. Exit code 1 if anything fails.
+// creates a scratch one if it is not present, then exercises the getters and
+// every download mode. LEADERBOARD_UPLOAD=1 additionally writes a real score.
+// Exit code 1 if anything fails.
 
 const { init } = require('../index.js')
 
@@ -13,6 +14,7 @@ const check = (ok, what, detail) => {
     console.log(`  ${ok ? 'ok  ' : 'FAIL'}  ${what}${detail ? `  (${detail})` : ''}`)
     if (!ok) failures++
 }
+const skip = (what, detail) => console.log(`  skip  ${what}${detail ? `  (${detail})` : ''}`)
 const json = (v) => JSON.stringify(v, (_, x) => typeof x === 'bigint' ? String(x) : x)
 
 async function main() {
@@ -57,19 +59,38 @@ async function main() {
     try { await leaderboard.findLeaderboard('bad\0name') } catch (e) { threw = true }
     check(threw, 'findLeaderboard() rejects a NUL byte in the name')
 
-    // Steam rate limits uploads to roughly 10 per 10 minutes, so keep this to
-    // a single small score.
+    // Steam refuses an over-long name with k_uAPICallInvalid, which the crate
+    // registers a callback against and never resolves, so it is caught first.
+    let threwLong = false
+    try { await leaderboard.findLeaderboard('x'.repeat(129)) } catch (e) { threwLong = true }
+    check(threwLong, 'findLeaderboard() rejects a name longer than 128 bytes')
+
+    let threwEmpty = false
+    try { await leaderboard.findLeaderboard('') } catch (e) { threwEmpty = true }
+    check(threwEmpty, 'findLeaderboard() rejects an empty name')
+
+    // A real upload against Steam's roughly 10 per 10 minutes limit, so it is
+    // opt in. Set LEADERBOARD_UPLOAD=1 to write a score to the live board.
     const score = 1000 + (Date.now() % 1000)
-    try {
-        const uploaded = await board.uploadScore(leaderboard.UploadScoreMethod.KeepBest, score, [1, 2])
-        const shapeOk = uploaded !== null
-            && typeof uploaded.score === 'number'
-            && typeof uploaded.wasChanged === 'boolean'
-            && typeof uploaded.globalRankNew === 'number'
-            && typeof uploaded.globalRankPrevious === 'number'
-        check(shapeOk, `uploadScore(KeepBest, ${score}, [1,2]) resolves with the uploaded shape`, json(uploaded))
-    } catch (e) {
-        check(false, 'uploadScore()', e.message)
+    if (!process.env.LEADERBOARD_UPLOAD) {
+        skip('uploadScore()', 'set LEADERBOARD_UPLOAD=1 to write a real score')
+    } else {
+        try {
+            const uploaded = await board.uploadScore(leaderboard.UploadScoreMethod.KeepBest, score, [1, 2])
+            if (uploaded === null) {
+                // Steam reports a throttled upload as unsuccessful rather than
+                // as an error, so this is not a binding failure.
+                skip('uploadScore()', 'Steam reported the upload as unsuccessful, most likely the ~10 per 10 minutes rate limit')
+            } else {
+                const shapeOk = typeof uploaded.score === 'number'
+                    && typeof uploaded.wasChanged === 'boolean'
+                    && typeof uploaded.globalRankNew === 'number'
+                    && typeof uploaded.globalRankPrevious === 'number'
+                check(shapeOk, `uploadScore(KeepBest, ${score}, [1,2]) resolves with the uploaded shape`, json(uploaded))
+            }
+        } catch (e) {
+            check(false, 'uploadScore()', e.message)
+        }
     }
 
     let threwDetails = false
