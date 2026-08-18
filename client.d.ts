@@ -128,9 +128,68 @@ export declare namespace matchmaking {
     Public = 2,
     Invisible = 3
   }
+  /** Comparison operator for lobby list filters (ELobbyComparison). */
+  export const enum LobbyComparison {
+    EqualToOrLessThan = 0,
+    LessThan = 1,
+    Equal = 2,
+    GreaterThan = 3,
+    EqualToOrGreaterThan = 4,
+    NotEqual = 5
+  }
+  /** Geographic distance filter for lobby list requests (ELobbyDistanceFilter). */
+  export const enum LobbyDistanceFilter {
+    /** Only lobbies in the same immediate region. */
+    Close = 0,
+    /** Same region or nearby regions. This is the Steam default. */
+    Default = 1,
+    /** Up to half-way around the globe. */
+    Far = 2,
+    /** No filtering, will match lobbies as far as India to NY. */
+    Worldwide = 3
+  }
+  /** Match a lobby data string value. */
+  export interface LobbyStringFilter {
+    key: string
+    value: string
+    comparison: LobbyComparison
+  }
+  /** Match a lobby data numeric value. */
+  export interface LobbyNumberFilter {
+    key: string
+    value: number
+    comparison: LobbyComparison
+  }
+  /**
+   * Sort results by closeness to a numeric lobby data value. Does not
+   * filter; lobbies further from the value simply appear later.
+   */
+  export interface LobbyNearValueFilter {
+    key: string
+    value: number
+  }
+  /**
+   * Server-side filters applied to a lobby list request. Every field is
+   * optional; an empty object behaves like the unfiltered request.
+   */
+  export interface LobbyListFilter {
+    stringFilters?: Array<LobbyStringFilter>
+    numberFilters?: Array<LobbyNumberFilter>
+    nearValueFilters?: Array<LobbyNearValueFilter>
+    /** Only return lobbies with at least this many open slots. */
+    openSlots?: number
+    distance?: LobbyDistanceFilter
+    /** Maximum number of lobbies to return. */
+    resultCount?: number
+  }
   export function createLobby(lobbyType: LobbyType, maxMembers: number): Promise<Lobby>
   export function joinLobby(lobbyId: bigint): Promise<Lobby>
-  export function getLobbies(): Promise<Array<Lobby>>
+  /**
+   * Request the list of lobbies visible to this client. Filters are
+   * applied server-side and must be supplied with the request; they do
+   * not persist between calls.
+   */
+  export function getLobbies(filter?: LobbyListFilter | undefined | null): Promise<Array<Lobby>>
   export class Lobby {
     id: bigint
     join(): Promise<Lobby>
@@ -140,6 +199,12 @@ export declare namespace matchmaking {
     getMemberLimit(): bigint | null
     getMembers(): Array<PlayerSteamId>
     getOwner(): PlayerSteamId
+    /**
+     * Transfer lobby ownership to another member. Only the current owner
+     * may call this, and the target must already be in the lobby.
+     * Members observe the change through the LobbyDataUpdate callback.
+     */
+    setOwner(steamId64: bigint): boolean
     setJoinable(joinable: boolean): boolean
     getData(key: string): string | null
     setData(key: string, value: string): boolean
@@ -188,6 +253,109 @@ export declare namespace networking {
   export function isP2PPacketAvailable(): number
   export function readP2PPacket(size: number): P2PPacket
   export function acceptP2PSession(steamId64: bigint): void
+}
+export declare namespace networking_messages {
+  export interface NetworkingMessagePacket {
+    data: Buffer
+    size: number
+    channel: number
+    steamId: PlayerSteamId
+  }
+  export const enum MessageSendType {
+    /** Send the message unreliably. Can be lost, reordered, or duplicated. */
+    Unreliable = 0,
+    /**
+     * Like `Unreliable` but does not buffer messages sent before the
+     * session is established, and disables Nagle.
+     */
+    UnreliableNoDelay = 1,
+    /** Reliable, ordered delivery. */
+    Reliable = 2,
+    /**
+     * Reliable delivery, but disables Nagle buffering so the message is
+     * sent immediately.
+     */
+    ReliableWithBuffering = 3
+  }
+  /**
+   * High level state of a session with a peer, mirroring
+   * ESteamNetworkingConnectionState.
+   */
+  export const enum SessionConnectionState {
+    /** No session with this peer exists (or it has already been closed). */
+    None = 0,
+    Connecting = 1,
+    FindingRoute = 2,
+    Connected = 3,
+    ClosedByPeer = 4,
+    ProblemDetectedLocally = 5,
+    /** Internal lingering states (FinWait / Linger / Dead). */
+    Closing = 6
+  }
+  export interface SessionConnectionInfo {
+    state: SessionConnectionState
+    /** ESteamNetConnectionEnd value, 0 when the session is healthy. */
+    endReason: number
+    /** Non-localized diagnostic text describing why the session ended. */
+    endDebug: string
+    /** Internal connection description (type, peer, relay). Diagnostic only. */
+    connectionDescription: string
+    /**
+     * Steam Datagram Relay POP the connection is routed through, as a
+     * short code such as "ams". Empty when the connection is direct.
+     */
+    relayPop: string
+    /** Data center the remote host is in, as a short code. Empty when unknown. */
+    remotePop: string
+    /** Whether the connection is currently routed through a relay. */
+    usingRelay: boolean
+    pingMs: number
+    /** Packet delivery success rate measured locally, 0..1. */
+    connectionQualityLocal: number
+    /** Packet delivery success rate as observed by the remote host, 0..1. */
+    connectionQualityRemote: number
+    outPacketsPerSec: number
+    outBytesPerSec: number
+    inPacketsPerSec: number
+    inBytesPerSec: number
+    pendingUnreliableBytes: number
+    pendingReliableBytes: number
+    sentUnackedReliableBytes: number
+  }
+  /**
+   * Accept every incoming session. Convenient for a private playtest, but a
+   * shipped host should allow only the peers it knows joined its lobby.
+   */
+  export function setAllowAllSessions(allow: boolean): void
+  /** Allow a specific peer, normally called when a lobby member joins. */
+  export function allowPeer(steamId64: bigint): void
+  /** Revoke a peer, normally called when a lobby member leaves. */
+  export function disallowPeer(steamId64: bigint): void
+  /**
+   * Whether a peer is currently allowed by the session policy, either
+   * through `allowPeer` or `setAllowAllSessions(true)`.
+   */
+  export function isPeerAllowed(steamId64: bigint): boolean
+  /** Clear the per-peer allow list. Does not touch `setAllowAllSessions`. */
+  export function clearAllowedPeers(): void
+  /**
+   * Register the session request/failed handlers. Call once after init.
+   * The handlers fire during `run_callbacks()`.
+   */
+  export function initSessionCallbacks(onSessionRequest: (steamId64: bigint, accepted: boolean) => void, onSessionFailed: (steamId64: bigint) => void): void
+  export function sendMessageToUser(steamId64: bigint, sendType: MessageSendType, data: Buffer, channel: number): boolean
+  export function receiveMessagesOnChannel(channel: number, batchSize: number): Array<NetworkingMessagePacket>
+  /**
+   * Close the session with a peer, discarding any queued messages.
+   * Required to acknowledge a broken session before opening a new one.
+   * @returns true if a session existed and was closed
+   */
+  export function closeSessionWithUser(steamId64: bigint): boolean
+  /**
+   * Query the state of the session with a peer, plus real-time statistics
+   * when the session exists. `state` is `None` when there is no session.
+   */
+  export function getSessionConnectionInfo(steamId64: bigint): SessionConnectionInfo
 }
 export declare namespace overlay {
   export const enum Dialog {
@@ -238,231 +406,4 @@ export declare namespace utils {
   }
   /** @returns true if the floating keyboard was shown, otherwise, false */
   export function showFloatingGamepadTextInput(keyboardMode: FloatingGamepadTextInputMode, x: number, y: number, width: number, height: number): Promise<boolean>
-}
-export declare namespace workshop {
-  export interface UgcResult {
-    itemId: bigint
-    needsToAcceptAgreement: boolean
-  }
-  export const enum UgcItemVisibility {
-    Public = 0,
-    FriendsOnly = 1,
-    Private = 2,
-    Unlisted = 3
-  }
-  export interface UgcUpdate {
-    title?: string
-    description?: string
-    changeNote?: string
-    previewPath?: string
-    contentPath?: string
-    tags?: Array<string>
-    visibility?: UgcItemVisibility
-  }
-  export interface InstallInfo {
-    folder: string
-    sizeOnDisk: bigint
-    timestamp: number
-  }
-  export interface DownloadInfo {
-    current: bigint
-    total: bigint
-  }
-  export const enum UpdateStatus {
-    Invalid = 0,
-    PreparingConfig = 1,
-    PreparingContent = 2,
-    UploadingContent = 3,
-    UploadingPreviewFile = 4,
-    CommittingChanges = 5
-  }
-  export interface UpdateProgress {
-    status: UpdateStatus
-    progress: bigint
-    total: bigint
-  }
-  export function createItem(appId?: number | undefined | null): Promise<UgcResult>
-  export function updateItem(itemId: bigint, updateDetails: UgcUpdate, appId?: number | undefined | null): Promise<UgcResult>
-  export function updateItemWithCallback(itemId: bigint, updateDetails: UgcUpdate, appId: number | undefined | null, successCallback: (data: UgcResult) => void, errorCallback: (err: any) => void, progressCallback?: (data: UpdateProgress) => void, progressCallbackIntervalMs?: number | undefined | null): void
-  /**
-   * Subscribe to a workshop item. It will be downloaded and installed as soon as possible.
-   *
-   * {@link https://partner.steamgames.com/doc/api/ISteamUGC#SubscribeItem}
-   */
-  export function subscribe(itemId: bigint): Promise<void>
-  /**
-   * Unsubscribe from a workshop item. This will result in the item being removed after the game quits.
-   *
-   * {@link https://partner.steamgames.com/doc/api/ISteamUGC#UnsubscribeItem}
-   */
-  export function unsubscribe(itemId: bigint): Promise<void>
-  /**
-   * Gets the current state of a workshop item on this client. States can be combined.
-   *
-   * @returns a number with the current item state, e.g. 9
-   * 9 = 1 (The current user is subscribed to this item) + 8 (The item needs an update)
-   *
-   * {@link https://partner.steamgames.com/doc/api/ISteamUGC#GetItemState}
-   * {@link https://partner.steamgames.com/doc/api/ISteamUGC#EItemState}
-   */
-  export function state(itemId: bigint): number
-  /**
-   * Gets info about currently installed content on the disc for workshop item.
-   *
-   * @returns an object with the the properties {folder, size_on_disk, timestamp}
-   *
-   * {@link https://partner.steamgames.com/doc/api/ISteamUGC#GetItemInstallInfo}
-   */
-  export function installInfo(itemId: bigint): InstallInfo | null
-  /**
-   * Get info about a pending download of a workshop item.
-   *
-   * @returns an object with the properties {current, total}
-   *
-   * {@link https://partner.steamgames.com/doc/api/ISteamUGC#GetItemDownloadInfo}
-   */
-  export function downloadInfo(itemId: bigint): DownloadInfo | null
-  /**
-   * Download or update a workshop item.
-   *
-   * @param highPriority - If high priority is true, start the download in high priority mode, pausing any existing in-progress Steam downloads and immediately begin downloading this workshop item.
-   * @returns true or false
-   *
-   * {@link https://partner.steamgames.com/doc/api/ISteamUGC#DownloadItem}
-   */
-  export function download(itemId: bigint, highPriority: boolean): boolean
-  /**
-   * Get all subscribed workshop items.
-   * @returns an array of subscribed workshop item ids
-   */
-  export function getSubscribedItems(): Array<bigint>
-  export const enum UGCQueryType {
-    RankedByVote = 0,
-    RankedByPublicationDate = 1,
-    AcceptedForGameRankedByAcceptanceDate = 2,
-    RankedByTrend = 3,
-    FavoritedByFriendsRankedByPublicationDate = 4,
-    CreatedByFriendsRankedByPublicationDate = 5,
-    RankedByNumTimesReported = 6,
-    CreatedByFollowedUsersRankedByPublicationDate = 7,
-    NotYetRated = 8,
-    RankedByTotalVotesAsc = 9,
-    RankedByVotesUp = 10,
-    RankedByTextSearch = 11,
-    RankedByTotalUniqueSubscriptions = 12,
-    RankedByPlaytimeTrend = 13,
-    RankedByTotalPlaytime = 14,
-    RankedByAveragePlaytimeTrend = 15,
-    RankedByLifetimeAveragePlaytime = 16,
-    RankedByPlaytimeSessionsTrend = 17,
-    RankedByLifetimePlaytimeSessions = 18,
-    RankedByLastUpdatedDate = 19
-  }
-  export const enum UGCType {
-    Items = 0,
-    ItemsMtx = 1,
-    ItemsReadyToUse = 2,
-    Collections = 3,
-    Artwork = 4,
-    Videos = 5,
-    Screenshots = 6,
-    AllGuides = 7,
-    WebGuides = 8,
-    IntegratedGuides = 9,
-    UsableInGame = 10,
-    ControllerBindings = 11,
-    GameManagedItems = 12,
-    All = 13
-  }
-  export const enum UserListType {
-    Published = 0,
-    VotedOn = 1,
-    VotedUp = 2,
-    VotedDown = 3,
-    Favorited = 4,
-    Subscribed = 5,
-    UsedOrPlayed = 6,
-    Followed = 7
-  }
-  export const enum UserListOrder {
-    CreationOrderAsc = 0,
-    CreationOrderDesc = 1,
-    TitleAsc = 2,
-    LastUpdatedDesc = 3,
-    SubscriptionDateDesc = 4,
-    VoteScoreDesc = 5,
-    ForModeration = 6
-  }
-  export interface WorkshopItemStatistic {
-    numSubscriptions?: bigint
-    numFavorites?: bigint
-    numFollowers?: bigint
-    numUniqueSubscriptions?: bigint
-    numUniqueFavorites?: bigint
-    numUniqueFollowers?: bigint
-    numUniqueWebsiteViews?: bigint
-    reportScore?: bigint
-    numSecondsPlayed?: bigint
-    numPlaytimeSessions?: bigint
-    numComments?: bigint
-    numSecondsPlayedDuringTimePeriod?: bigint
-    numPlaytimeSessionsDuringTimePeriod?: bigint
-  }
-  export interface WorkshopItem {
-    publishedFileId: bigint
-    creatorAppId?: number
-    consumerAppId?: number
-    title: string
-    description: string
-    owner: PlayerSteamId
-    /** Time created in unix epoch seconds format */
-    timeCreated: number
-    /** Time updated in unix epoch seconds format */
-    timeUpdated: number
-    /** Time when the user added the published item to their list (not always applicable), provided in Unix epoch format (time since Jan 1st, 1970). */
-    timeAddedToUserList: number
-    visibility: UgcItemVisibility
-    banned: boolean
-    acceptedForUse: boolean
-    tags: Array<string>
-    tagsTruncated: boolean
-    url: string
-    numUpvotes: number
-    numDownvotes: number
-    numChildren: number
-    previewUrl?: string
-    statistics: WorkshopItemStatistic
-  }
-  export interface WorkshopPaginatedResult {
-    items: Array<WorkshopItem | undefined | null>
-    returnedResults: number
-    totalResults: number
-    wasCached: boolean
-  }
-  export interface WorkshopItemsResult {
-    items: Array<WorkshopItem | undefined | null>
-    wasCached: boolean
-  }
-  export interface WorkshopItemQueryConfig {
-    cachedResponseMaxAge?: number
-    includeMetadata?: boolean
-    includeLongDescription?: boolean
-    includeAdditionalPreviews?: boolean
-    onlyIds?: boolean
-    onlyTotal?: boolean
-    language?: string
-    matchAnyTag?: boolean
-    requiredTags?: Array<string>
-    excludedTags?: Array<string>
-    searchText?: string
-    rankedByTrendDays?: number
-  }
-  export interface AppIDs {
-    creator?: number
-    consumer?: number
-  }
-  export function getItem(item: bigint, queryConfig?: WorkshopItemQueryConfig | undefined | null): Promise<WorkshopItem | null>
-  export function getItems(items: Array<bigint>, queryConfig?: WorkshopItemQueryConfig | undefined | null): Promise<WorkshopItemsResult>
-  export function getAllItems(page: number, queryType: UGCQueryType, itemType: UGCType, creatorAppId: number, consumerAppId: number, queryConfig?: WorkshopItemQueryConfig | undefined | null): Promise<WorkshopPaginatedResult>
-  export function getUserItems(page: number, accountId: number, listType: UserListType, itemType: UGCType, sortOrder: UserListOrder, appIds: AppIDs, queryConfig?: WorkshopItemQueryConfig | undefined | null): Promise<WorkshopPaginatedResult>
 }

@@ -1,5 +1,5 @@
-/** @type {import('steamworks.js')} */
-const steamworks = require('steamworks.js');
+/** @type {import('@cozycoast/steamworks.js')} */
+const steamworks = require('@cozycoast/steamworks.js');
 const client = steamworks.init(480);
 
 const playerName = client.localplayer.getName()

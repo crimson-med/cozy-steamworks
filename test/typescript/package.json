@@ -2,7 +2,7 @@
     "name": "steamworks.js-typescript-test",
     "private": true,
     "dependencies": {
-        "steamworks.js": "../.."
+        "@cozycoast/steamworks.js": "../.."
     },
     "devDependencies": {
         "typescript": "4.7.4"

@@ -39,9 +39,17 @@ module.exports.init = (appId) => {
 /**
  * @param {number} appId - App ID of the game to load
  * {@link https://partner.steamgames.com/doc/api/steam_api#SteamAPI_RestartAppIfNecessary}
- * @returns {boolean} 
+ * @returns {boolean}
  */
 module.exports.restartAppIfNecessary = (appId) => nativeBinding.restartAppIfNecessary(appId);
+
+/**
+ * Dispatch pending Steam callbacks once. `init` already pumps this at 30 Hz
+ * on a timer; call it manually only if that timer proves unreliable in your
+ * process (for example a throttled Electron main process).
+ * {@link https://partner.steamgames.com/doc/api/steam_api#SteamAPI_RunCallbacks}
+ */
+module.exports.runCallbacks = () => nativeBinding.runCallbacks();
 
 /**
  * Enable the steam overlay on electron
