@@ -10,5 +10,3 @@ pub mod networking;
 pub mod overlay;
 pub mod stats;
 pub mod utils;
-pub mod workshop;
-pub mod workshop_item;

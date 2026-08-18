@@ -16,9 +16,8 @@ pub mod callback {
     impl Handle {
         #[napi]
         pub fn disconnect(&mut self) {
-            if let Some(handle) = self.handle.take() {
-                handle.disconnect();
-            }
+            // CallbackHandle unregisters on Drop since steamworks 0.13.
+            self.handle.take();
         }
     }
 
