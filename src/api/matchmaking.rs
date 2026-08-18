@@ -306,16 +306,27 @@ pub mod matchmaking {
         matchmaking: &Matchmaking,
         filter: LobbyListFilter,
     ) -> Result<(), Error> {
-        let key_error = |key: &str| {
-            Error::from_reason(format!(
-                "Lobby filter key \"{key}\" exceeds the maximum key length"
-            ))
-        };
+        let string_filters = filter.string_filters.unwrap_or_default();
+        let number_filters = filter.number_filters.unwrap_or_default();
+        let near_value_filters = filter.near_value_filters.unwrap_or_default();
 
-        for f in filter.string_filters.unwrap_or_default() {
-            let key = LobbyKey::try_new(&f.key).map_err(|_| key_error(&f.key))?;
+        // Validate everything before touching the interface. Steam only clears
+        // pending filters when the request is issued, so bailing out half-way
+        // would leak a partial filter set into the next getLobbies call.
+        for f in &string_filters {
+            validate_filter_key(&f.key)?;
+            validate_filter_value(&f.value)?;
+        }
+        for f in &number_filters {
+            validate_filter_key(&f.key)?;
+        }
+        for f in &near_value_filters {
+            validate_filter_key(&f.key)?;
+        }
+
+        for f in &string_filters {
             matchmaking.add_request_lobby_list_string_filter(StringFilter(
-                key,
+                LobbyKey::new(&f.key),
                 &f.value,
                 match f.comparison {
                     LobbyComparison::EqualToOrLessThan => {
@@ -332,10 +343,9 @@ pub mod matchmaking {
             ));
         }
 
-        for f in filter.number_filters.unwrap_or_default() {
-            let key = LobbyKey::try_new(&f.key).map_err(|_| key_error(&f.key))?;
+        for f in &number_filters {
             matchmaking.add_request_lobby_list_numerical_filter(NumberFilter(
-                key,
+                LobbyKey::new(&f.key),
                 f.value,
                 match f.comparison {
                     LobbyComparison::EqualToOrLessThan => {
@@ -352,9 +362,11 @@ pub mod matchmaking {
             ));
         }
 
-        for f in filter.near_value_filters.unwrap_or_default() {
-            let key = LobbyKey::try_new(&f.key).map_err(|_| key_error(&f.key))?;
-            matchmaking.add_request_lobby_list_near_value_filter(NearFilter(key, f.value));
+        for f in &near_value_filters {
+            matchmaking.add_request_lobby_list_near_value_filter(NearFilter(
+                LobbyKey::new(&f.key),
+                f.value,
+            ));
         }
 
         if let Some(open_slots) = filter.open_slots {
@@ -371,9 +383,33 @@ pub mod matchmaking {
         }
 
         if let Some(count) = filter.result_count {
-            matchmaking.set_request_lobby_list_result_count_filter(count as u64);
+            // The SDK takes an int; anything larger would wrap negative.
+            matchmaking
+                .set_request_lobby_list_result_count_filter(count.min(i32::MAX as u32) as u64);
         }
 
+        Ok(())
+    }
+
+    fn validate_filter_key(key: &str) -> Result<(), Error> {
+        if key.contains('\0') {
+            return Err(Error::from_reason(format!(
+                "Lobby filter key {key:?} contains a NUL byte"
+            )));
+        }
+        LobbyKey::try_new(key).map(|_| ()).map_err(|_| {
+            Error::from_reason(format!(
+                "Lobby filter key {key:?} exceeds the maximum key length"
+            ))
+        })
+    }
+
+    fn validate_filter_value(value: &str) -> Result<(), Error> {
+        if value.contains('\0') {
+            return Err(Error::from_reason(format!(
+                "Lobby filter value {value:?} contains a NUL byte"
+            )));
+        }
         Ok(())
     }
 }

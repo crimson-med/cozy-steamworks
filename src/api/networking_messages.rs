@@ -44,9 +44,9 @@ pub mod networking_messages {
         UnreliableNoDelay,
         /// Reliable, ordered delivery.
         Reliable,
-        /// Reliable delivery, but disables Nagle buffering so the message is
-        /// sent immediately.
-        ReliableWithBuffering,
+        /// Reliable delivery with Nagle disabled, so the message goes out
+        /// immediately instead of being coalesced with the next one.
+        ReliableNoNagle,
     }
 
     /// High level state of a session with a peer, mirroring
@@ -74,11 +74,12 @@ pub mod networking_messages {
         /// Internal connection description (type, peer, relay). Diagnostic only.
         pub connection_description: String,
         /// Steam Datagram Relay POP the connection is routed through, as a
-        /// short code such as "ams". Empty when the connection is direct.
+        /// short code such as "ams". Empty when not routed through SDR.
         pub relay_pop: String,
         /// Data center the remote host is in, as a short code. Empty when unknown.
         pub remote_pop: String,
-        /// Whether the connection is currently routed through a relay.
+        /// Whether the connection is currently routed through any relay
+        /// (SDR or TURN) rather than direct.
         pub using_relay: bool,
         pub ping_ms: i32,
         /// Packet delivery success rate measured locally, 0..1.
@@ -102,6 +103,12 @@ pub mod networking_messages {
     }
 
     /// Allow a specific peer, normally called when a lobby member joins.
+    ///
+    /// The decision is made when the peer's first message arrives, so this
+    /// must be called before that. If a peer's message beats the allow call
+    /// the session is rejected once; the sender sees it through
+    /// `onSessionFailed`, must call `closeSessionWithUser`, and its next send
+    /// opens a fresh session request that will then be accepted.
     #[napi]
     pub fn allow_peer(steam_id64: BigInt) {
         ALLOWED.lock().unwrap().insert(steam_id64.get_u64().1);
@@ -129,6 +136,10 @@ pub mod networking_messages {
 
     /// Register the session request/failed handlers. Call once after init.
     /// The handlers fire during `run_callbacks()`.
+    ///
+    /// `onSessionRequest` reports the peer and whether the policy accepted it.
+    /// `onSessionFailed` fires when a session with a peer breaks; call
+    /// `closeSessionWithUser` for that peer before sending to it again.
     #[napi]
     pub fn init_session_callbacks(
         #[napi(ts_arg_type = "(steamId64: bigint, accepted: boolean) => void")]
@@ -188,24 +199,31 @@ pub mod networking_messages {
         Ok(())
     }
 
+    /// Send a message to a peer, opening a session implicitly if needed.
+    ///
+    /// Throws when Steam refuses the send. The error message is the EResult
+    /// name, for example `NoConnection` (the session is broken or was closed
+    /// by the peer: call `closeSessionWithUser` before retrying),
+    /// `LimitExceeded` (message too large or too much queued), or
+    /// `InvalidParam`.
     #[napi]
     pub fn send_message_to_user(
         steam_id64: BigInt,
         send_type: MessageSendType,
         data: Buffer,
         channel: u32,
-    ) -> Result<bool, Error> {
+    ) -> Result<(), Error> {
         let flags = match send_type {
             MessageSendType::Unreliable => SendFlags::UNRELIABLE,
             MessageSendType::UnreliableNoDelay => SendFlags::UNRELIABLE_NO_DELAY,
             MessageSendType::Reliable => SendFlags::RELIABLE,
-            MessageSendType::ReliableWithBuffering => SendFlags::RELIABLE_NO_NAGLE,
+            MessageSendType::ReliableNoNagle => SendFlags::RELIABLE_NO_NAGLE,
         };
         let identity = NetworkingIdentity::new_steam_id(SteamId::from_raw(steam_id64.get_u64().1));
-        Ok(crate::client::get_client()
+        crate::client::get_client()
             .networking_messages()
             .send_message_to_user(identity, flags, &data, channel)
-            .is_ok())
+            .map_err(|e| Error::from_reason(format!("{e:?}")))
     }
 
     #[napi]
@@ -284,7 +302,8 @@ pub mod networking_messages {
                 connection_description: c_chars_to_string(&info.m_szConnectionDescription),
                 relay_pop: pop_id_to_string(info.m_idPOPRelay),
                 remote_pop: pop_id_to_string(info.m_idPOPRemote),
-                using_relay: has_session && info.m_idPOPRelay != 0,
+                using_relay: has_session
+                    && (info.m_nFlags & sys::k_nSteamNetworkConnectionInfoFlags_Relayed) != 0,
                 ping_ms: status.m_nPing,
                 connection_quality_local: status.m_flConnectionQualityLocal as f64,
                 connection_quality_remote: status.m_flConnectionQualityRemote as f64,

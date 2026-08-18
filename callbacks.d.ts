@@ -1,17 +1,20 @@
 import client = require('./client')
 
-export const enum ChatMemberStateChange {
+/**
+ * How a member's lobby state changed. Delivered as the variant name, not a
+ * number, because callback payloads are serialized through serde.
+ */
+export type ChatMemberStateChange =
     /** This user has joined or is joining the lobby. */
-    Entered,
+    | 'Entered'
     /** This user has left or is leaving the lobby. */
-    Left,
+    | 'Left'
     /** User disconnected without leaving the lobby first. */
-    Disconnected,
+    | 'Disconnected'
     /** The user has been kicked. */
-    Kicked,
+    | 'Kicked'
     /** The user has been kicked and banned. */
-    Banned,
-}
+    | 'Banned'
 
 export interface CallbackReturns {
     [client.callback.SteamCallback.PersonaStateChange]: {

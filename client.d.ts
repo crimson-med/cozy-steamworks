@@ -272,10 +272,10 @@ export declare namespace networking_messages {
     /** Reliable, ordered delivery. */
     Reliable = 2,
     /**
-     * Reliable delivery, but disables Nagle buffering so the message is
-     * sent immediately.
+     * Reliable delivery with Nagle disabled, so the message goes out
+     * immediately instead of being coalesced with the next one.
      */
-    ReliableWithBuffering = 3
+    ReliableNoNagle = 3
   }
   /**
    * High level state of a session with a peer, mirroring
@@ -302,12 +302,15 @@ export declare namespace networking_messages {
     connectionDescription: string
     /**
      * Steam Datagram Relay POP the connection is routed through, as a
-     * short code such as "ams". Empty when the connection is direct.
+     * short code such as "ams". Empty when not routed through SDR.
      */
     relayPop: string
     /** Data center the remote host is in, as a short code. Empty when unknown. */
     remotePop: string
-    /** Whether the connection is currently routed through a relay. */
+    /**
+     * Whether the connection is currently routed through any relay
+     * (SDR or TURN) rather than direct.
+     */
     usingRelay: boolean
     pingMs: number
     /** Packet delivery success rate measured locally, 0..1. */
@@ -327,7 +330,15 @@ export declare namespace networking_messages {
    * shipped host should allow only the peers it knows joined its lobby.
    */
   export function setAllowAllSessions(allow: boolean): void
-  /** Allow a specific peer, normally called when a lobby member joins. */
+  /**
+   * Allow a specific peer, normally called when a lobby member joins.
+   *
+   * The decision is made when the peer's first message arrives, so this
+   * must be called before that. If a peer's message beats the allow call
+   * the session is rejected once; the sender sees it through
+   * `onSessionFailed`, must call `closeSessionWithUser`, and its next send
+   * opens a fresh session request that will then be accepted.
+   */
   export function allowPeer(steamId64: bigint): void
   /** Revoke a peer, normally called when a lobby member leaves. */
   export function disallowPeer(steamId64: bigint): void
@@ -341,9 +352,22 @@ export declare namespace networking_messages {
   /**
    * Register the session request/failed handlers. Call once after init.
    * The handlers fire during `run_callbacks()`.
+   *
+   * `onSessionRequest` reports the peer and whether the policy accepted it.
+   * `onSessionFailed` fires when a session with a peer breaks; call
+   * `closeSessionWithUser` for that peer before sending to it again.
    */
   export function initSessionCallbacks(onSessionRequest: (steamId64: bigint, accepted: boolean) => void, onSessionFailed: (steamId64: bigint) => void): void
-  export function sendMessageToUser(steamId64: bigint, sendType: MessageSendType, data: Buffer, channel: number): boolean
+  /**
+   * Send a message to a peer, opening a session implicitly if needed.
+   *
+   * Throws when Steam refuses the send. The error message is the EResult
+   * name, for example `NoConnection` (the session is broken or was closed
+   * by the peer: call `closeSessionWithUser` before retrying),
+   * `LimitExceeded` (message too large or too much queued), or
+   * `InvalidParam`.
+   */
+  export function sendMessageToUser(steamId64: bigint, sendType: MessageSendType, data: Buffer, channel: number): void
   export function receiveMessagesOnChannel(channel: number, batchSize: number): Array<NetworkingMessagePacket>
   /**
    * Close the session with a peer, discarding any queued messages.

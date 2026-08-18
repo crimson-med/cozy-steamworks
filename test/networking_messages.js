@@ -17,8 +17,15 @@ const me = client.localplayer.getSteamId().steamId64
 // host must allow a peer before that peer's first message can be accepted.
 client.networking_messages.initSessionCallbacks(
     (steamId64, accepted) => console.log(`Session request from ${steamId64}: ${accepted ? 'accepted' : 'rejected'}`),
-    (steamId64) => console.log(`Session with ${steamId64} failed:`, client.networking_messages.getSessionConnectionInfo(steamId64)),
+    (steamId64) => {
+        console.log(`Session with ${steamId64} failed:`, client.networking_messages.getSessionConnectionInfo(steamId64))
+        // Acknowledge the broken session so the next send opens a new one.
+        client.networking_messages.closeSessionWithUser(steamId64)
+    },
 )
+
+// Keep the handle alive: dropping it unregisters the callback.
+let lobbyChatUpdateHandle
 
 const rlInterface = rl.createInterface({
     input: process.stdin,
@@ -43,9 +50,10 @@ rlInterface.question('Enter a lobby id or press enter to create one: ', async lo
     }
     allowMembers()
 
-    client.callback.register(SteamCallback.LobbyChatUpdate, ({ user_changed, member_state_change }) => {
-        // ChatMemberStateChange.Entered is 0; anything else is a leave/kick/ban.
-        if (member_state_change === 0) {
+    lobbyChatUpdateHandle = client.callback.register(SteamCallback.LobbyChatUpdate, ({ user_changed, member_state_change }) => {
+        // member_state_change arrives as the variant name; anything but
+        // 'Entered' is a leave, disconnect, kick, or ban.
+        if (member_state_change === 'Entered') {
             client.networking_messages.allowPeer(user_changed)
             console.log(`${user_changed} joined`)
         } else {
@@ -58,12 +66,16 @@ rlInterface.question('Enter a lobby id or press enter to create one: ', async lo
     const broadcast = (text) => {
         lobby.getMembers().forEach(peer => {
             if (peer.steamId64 !== me) {
-                client.networking_messages.sendMessageToUser(
-                    peer.steamId64,
-                    client.networking_messages.MessageSendType.Reliable,
-                    Buffer.from(text),
-                    CHANNEL,
-                )
+                try {
+                    client.networking_messages.sendMessageToUser(
+                        peer.steamId64,
+                        client.networking_messages.MessageSendType.Reliable,
+                        Buffer.from(text),
+                        CHANNEL,
+                    )
+                } catch (e) {
+                    console.log(`Send to ${peer.steamId64} failed: ${e.message}`)
+                }
             }
         })
     }
