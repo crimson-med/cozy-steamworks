@@ -294,7 +294,10 @@ export declare namespace networking_messages {
   }
   export interface SessionConnectionInfo {
     state: SessionConnectionState
-    /** ESteamNetConnectionEnd value, 0 when the session is healthy. */
+    /**
+     * ESteamNetConnectionEnd value. 0 when the session is healthy or
+     * Steam did not record a reason (seen on loopback pipe closes).
+     */
     endReason: number
     /** Non-localized diagnostic text describing why the session ended. */
     endDebug: string

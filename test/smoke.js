@@ -157,7 +157,9 @@ async function main() {
         info.state !== nm.SessionConnectionState.None ? pass('getSessionConnectionInfo() with session') : fail('getSessionConnectionInfo() with session', JSON.stringify(info))
         requestSeen ? pass('onSessionRequest fired', JSON.stringify(requestSeen, (_, v) => typeof v === 'bigint' ? String(v) : v)) : skip('onSessionRequest fired', 'not observed for loopback')
     }
-    typeof nm.closeSessionWithUser(me) === 'boolean' ? pass('closeSessionWithUser()') : fail('closeSessionWithUser()')
+    const closed = nm.closeSessionWithUser(me)
+    if (loopbackOk) closed ? pass('closeSessionWithUser() true') : fail('closeSessionWithUser() true', String(closed))
+    else typeof closed === 'boolean' ? pass('closeSessionWithUser()') : fail('closeSessionWithUser()')
     nm.disallowPeer(me)
     !nm.isPeerAllowed(me) ? pass('disallowPeer()') : fail('disallowPeer()')
 

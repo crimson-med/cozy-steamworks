@@ -67,7 +67,8 @@ pub mod networking_messages {
     #[napi(object)]
     pub struct SessionConnectionInfo {
         pub state: SessionConnectionState,
-        /// ESteamNetConnectionEnd value, 0 when the session is healthy.
+        /// ESteamNetConnectionEnd value. 0 when the session is healthy or
+        /// Steam did not record a reason (seen on loopback pipe closes).
         pub end_reason: i32,
         /// Non-localized diagnostic text describing why the session ended.
         pub end_debug: String,
