@@ -1,5 +1,5 @@
 [![Build Status](https://github.com/crimson-med/cozy-steamworks/actions/workflows/publish.yml/badge.svg)](https://github.com/crimson-med/cozy-steamworks/actions/workflows/publish.yml)
-[![npm](https://img.shields.io/npm/v/@cozycoast/steamworks.js.svg)](https://npmjs.com/package/@cozycoast/steamworks.js)
+[![Release](https://img.shields.io/github/v/release/crimson-med/cozy-steamworks)](https://github.com/crimson-med/cozy-steamworks/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 # @cozycoast/steamworks.js
@@ -118,7 +118,7 @@ For the production build, copy the relevant distro files from `sdk/redistributab
 
 ## How to build
 
-> You only need to build if you are changing the library. To consume it, install from npm.
+> You only need to build if you are changing the library. To consume it, install a release tarball.
 
 Requirements: current [Node.js](https://nodejs.org/en/), [Rust](https://www.rust-lang.org/tools/install), and [Clang](https://rust-lang.github.io/rust-bindgen/requirements.html). Steam must be installed and running to exercise anything beyond compilation.
 
