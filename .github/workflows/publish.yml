@@ -3,7 +3,9 @@ name: Publish
 on:
     push:
         branches: [main]
+        tags: ['v*']
     pull_request:
+    workflow_dispatch:
 
 env:
     DEBUG: 'napi:*'
@@ -107,8 +109,9 @@ jobs:
                   if-no-files-found: error
 
     deploy:
-        # prevents this action from running on forks or pull requests
-        if: ${{ github.repository == 'crimson-med/cozy-steamworks' && github.event_name == 'push' }}
+        # Publish only from this repository, and only for a version tag or a
+        # manual dispatch. An ordinary push to main builds but does not publish.
+        if: ${{ github.repository == 'crimson-med/cozy-steamworks' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') }}
 
         runs-on: ubuntu-latest
         needs: [build, build-mac]

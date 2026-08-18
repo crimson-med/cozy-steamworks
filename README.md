@@ -1,29 +1,30 @@
-[![Build Status](https://github.com/ceifa/steamworks.js/actions/workflows/publish.yml/badge.svg)](https://github.com/ceifa/steamworks.js/actions/workflows/publish.yml)
-[![npm](https://img.shields.io/npm/v/steamworks.js.svg)](https://npmjs.com/package/steamworks.js)
+[![Build Status](https://github.com/crimson-med/cozy-steamworks/actions/workflows/publish.yml/badge.svg)](https://github.com/crimson-med/cozy-steamworks/actions/workflows/publish.yml)
+[![npm](https://img.shields.io/npm/v/@cozycoast/steamworks.js.svg)](https://npmjs.com/package/@cozycoast/steamworks.js)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Chat](https://img.shields.io/discord/663831597690257431?label=chat&logo=discord)](https://discord.gg/H6B7UE7fMY)
 
-# Steamworks.js
+# @cozycoast/steamworks.js
 
-A modern implementation of the Steamworks SDK for HTML/JS and NodeJS based applications.
+A fork of [steamworks.js](https://github.com/ceifa/steamworks.js) maintained for [Cozy Coast](https://store.steampowered.com/app/4938190). It tracks a current Steamworks SDK and adds the multiplayer surface the upstream project never exposed. The original README, credits, and license apply; only the differences are documented here.
 
-## Why
+## Differences from upstream
 
-I used [greenworks](https://github.com/greenheartgames/greenworks) for a long time and it's great, but I gave up for the following reasons.
+| Area | Upstream 0.4.0 | This fork |
+| --- | --- | --- |
+| Rust crate | `steamworks` git rev (0.11.0) | `steamworks` 0.13.1 (Steamworks SDK 1.64) |
+| Redistributables | SDK 1.5x (`SteamClient021`) | SDK 1.64 (`SteamClient023`) |
+| Networking | `networking` (legacy `ISteamNetworking`, deprecated by Valve) | Both `networking` and a new `networking_messages` (`ISteamNetworkingMessages`) |
+| Lobby list | `getLobbies()` unfiltered | `getLobbies(filter?)` with server-side string, number, near-value, open-slot, distance, and result-count filters |
+| Lobby owner | read only | `Lobby.setOwner()` |
+| Workshop / UGC | `workshop` module | removed |
+| `runCallbacks` | internal only | also exported for manual pumping |
+| `callbacks.d.ts` | `member_state_change` typed as a number | typed as the variant name string it actually is |
 
-* It's not being maintained anymore.
-* It's not up to date.
-* It's not context-aware.
-* You have to build the binaries by yourself.
-* Don't have typescript definitions.
-* The API it's not trustful.
-* The API implement callbacks instead of return flags or promises.
-* I hate C++.
+`init` no longer calls `RequestCurrentStats`. SDK 1.64 removed it: stats and achievements are synchronized by the Steam client before the game process starts, so nothing replaces it.
 
 ## API
 
 ```js
-const steamworks = require('steamworks.js')
+const steamworks = require('@cozycoast/steamworks.js')
 
 // You can pass an appId, or don't pass anything and use a steam_appid.txt file
 const client = steamworks.init(480)
@@ -37,52 +38,96 @@ if (client.achievement.activate('ACHIEVEMENT')) {
 }
 ```
 
-You can refer to the [declarations file](https://github.com/ceifa/steamworks.js/blob/main/client.d.ts) to check the API support and get more detailed documentation of each function.
+Refer to [client.d.ts](./client.d.ts) for the full surface and per-function documentation.
 
-## Installation
-
-To use steamworks.js you don't have to build anything, just install it from npm:
-
-```sh
-$: npm i steamworks.js
-```
-
-### Electron
-
-Steamworks.js is a native module and cannot be used by default in the renderer process. To enable the usage of native modules on the renderer process, the following configurations should be made on `main.js`:
+### Lobby list filters
 
 ```js
-const mainWindow = new BrowserWindow({
-    // ...
-    webPreferences: {
-        // ...
-        contextIsolation: false,
-        nodeIntegration: true
-    }
+const lobbies = await client.matchmaking.getLobbies({
+    stringFilters: [{ key: 'protocol', value: '3', comparison: client.matchmaking.LobbyComparison.Equal }],
+    openSlots: 1,
+    distance: client.matchmaking.LobbyDistanceFilter.Worldwide,
+    resultCount: 50,
 })
 ```
 
-To make the steam overlay working, call the `electronEnableSteamOverlay` on the end of your `main.js` file:
+Filters apply to the request they are passed with and do not persist.
+
+### Networking messages
+
+`ISteamNetworkingMessages` is connectionless: you send to a Steam ID and Steam opens a session on demand. Sessions are accepted or rejected synchronously inside a Steam callback, which cannot round-trip through JavaScript, so the policy is declared up front:
 
 ```js
-require('steamworks.js').electronEnableSteamOverlay()
+const nm = client.networking_messages
+
+// Register once after init. Both handlers fire on the callback pump.
+nm.initSessionCallbacks(
+    (steamId64, accepted) => { /* peer requested a session; accepted per policy */ },
+    (steamId64) => {
+        // Session broke. Acknowledge it before sending to that peer again.
+        nm.closeSessionWithUser(steamId64)
+    },
+)
+
+// Allow peers as they join your lobby, revoke as they leave.
+client.callback.register(steamworks.SteamCallback.LobbyChatUpdate, ({ user_changed, member_state_change }) => {
+    if (member_state_change === 'Entered') nm.allowPeer(user_changed)
+    else nm.disallowPeer(user_changed)
+})
+
+// Send. Throws with the EResult name (for example 'NoConnection') on failure.
+nm.sendMessageToUser(peerId64, nm.MessageSendType.Unreliable, Buffer.from(payload), 1)
+
+// Receive by polling; messages are not delivered through callbacks.
+setInterval(() => {
+    for (const { steamId, data, channel } of nm.receiveMessagesOnChannel(1, 32)) {
+        // ...
+    }
+}, 50)
 ```
 
-For the production build, copy the relevant distro files from `sdk/redistributable_bin/{YOUR_DISTRO}` into the root of your build. If you are using electron-forge, look for [#75](https://github.com/ceifa/steamworks.js/issues/75).
+`setAllowAllSessions(true)` accepts every incoming session and is intended for private playtests only. `getSessionConnectionInfo(steamId64)` reports the session state, ping, delivery quality, and whether the route is relayed.
 
+## Installation
+
+```sh
+npm i @cozycoast/steamworks.js
+```
+
+The prebuilt binaries in `dist/` are only present in the npm tarball, not in the repository, so a plain git dependency does not work.
+
+### Electron
+
+The native module cannot be used by default in the renderer process. Keep all Steam calls in the main process and expose what the renderer needs through your own IPC bridge. If you must load it in the renderer, upstream documents enabling `nodeIntegration` and disabling `contextIsolation`, which weakens the renderer sandbox.
+
+To make the Steam overlay work, call `electronEnableSteamOverlay` at the end of your `main.js`:
+
+```js
+require('@cozycoast/steamworks.js').electronEnableSteamOverlay()
+```
+
+For the production build, copy the relevant distro files from `sdk/redistributable_bin/{YOUR_DISTRO}` into the root of your build, and keep the package outside the asar archive.
 
 ## How to build
 
-> You **only** need to build if you are going to change something on steamworks.js code, if you are looking to just consume the library or use it in your game, refer to the [installation section](#installation).
+> You only need to build if you are changing the library. To consume it, install from npm.
 
-Make sure you have the latest [node.js](https://nodejs.org/en/), [Rust](https://www.rust-lang.org/tools/install) and [Clang](https://rust-lang.github.io/rust-bindgen/requirements.html). We also need [Steam](https://store.steampowered.com/about/) installed and running.
+Requirements: current [Node.js](https://nodejs.org/en/), [Rust](https://www.rust-lang.org/tools/install), and [Clang](https://rust-lang.github.io/rust-bindgen/requirements.html). Steam must be installed and running to exercise anything beyond compilation.
 
-Install dependencies with `npm install` and then run `npm run build:debug` to build the library.
+```sh
+npm ci
+npm run build          # release build for the current target, regenerates client.d.ts
+npm run build:debug
+```
 
-There is no way to build for all targets easily. The good news is that you don't need to. You can develop and test on your current target, and open a PR. When the code is merged to main, a github action will build for all targets and publish a new version.
+CI builds `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`, and `aarch64-apple-darwin`. Publishing to npm runs only for a `v*` tag or a manual workflow dispatch on this repository, never on an ordinary push.
 
-### Testing Electron
+### Testing
 
-Go to the [test/electron](./test/electron) directory. There, you can run `npm install` and then `npm start` to run the Electron app.
+- `node test/smoke.js` runs a single-machine check against a running Steam client (app 480): identity, lobby create and filtered list, self-owner transfer, loopback message.
+- `node test/networking_messages.js` on two machines exercises a real peer session.
+- `test/electron` runs the upstream Electron overlay test.
 
-Click "activate overlay" to test the overlay.
+## Upstream
+
+Bug reports and general questions about the API belong with [ceifa/steamworks.js](https://github.com/ceifa/steamworks.js). This fork tracks that repository as `upstream`.
