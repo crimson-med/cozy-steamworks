@@ -5,7 +5,10 @@ pub mod matchmaking {
     use crate::api::localplayer::PlayerSteamId;
     use napi::bindgen_prelude::{BigInt, Error};
     use std::collections::HashMap;
-    use steamworks::LobbyId;
+    use steamworks::sys;
+    use steamworks::{
+        DistanceFilter, LobbyId, LobbyKey, Matchmaking, NearFilter, NumberFilter, StringFilter,
+    };
     use tokio::sync::oneshot;
 
     #[napi]
@@ -14,6 +17,68 @@ pub mod matchmaking {
         FriendsOnly,
         Public,
         Invisible,
+    }
+
+    /// Comparison operator for lobby list filters (ELobbyComparison).
+    #[napi]
+    pub enum LobbyComparison {
+        EqualToOrLessThan,
+        LessThan,
+        Equal,
+        GreaterThan,
+        EqualToOrGreaterThan,
+        NotEqual,
+    }
+
+    /// Geographic distance filter for lobby list requests (ELobbyDistanceFilter).
+    #[napi]
+    pub enum LobbyDistanceFilter {
+        /// Only lobbies in the same immediate region.
+        Close,
+        /// Same region or nearby regions. This is the Steam default.
+        Default,
+        /// Up to half-way around the globe.
+        Far,
+        /// No filtering, will match lobbies as far as India to NY.
+        Worldwide,
+    }
+
+    /// Match a lobby data string value.
+    #[napi(object)]
+    pub struct LobbyStringFilter {
+        pub key: String,
+        pub value: String,
+        pub comparison: LobbyComparison,
+    }
+
+    /// Match a lobby data numeric value.
+    #[napi(object)]
+    pub struct LobbyNumberFilter {
+        pub key: String,
+        pub value: i32,
+        pub comparison: LobbyComparison,
+    }
+
+    /// Sort results by closeness to a numeric lobby data value. Does not
+    /// filter; lobbies further from the value simply appear later.
+    #[napi(object)]
+    pub struct LobbyNearValueFilter {
+        pub key: String,
+        pub value: i32,
+    }
+
+    /// Server-side filters applied to a lobby list request. Every field is
+    /// optional; an empty object behaves like the unfiltered request.
+    #[napi(object)]
+    pub struct LobbyListFilter {
+        pub string_filters: Option<Vec<LobbyStringFilter>>,
+        pub number_filters: Option<Vec<LobbyNumberFilter>>,
+        pub near_value_filters: Option<Vec<LobbyNearValueFilter>>,
+        /// Only return lobbies with at least this many open slots.
+        pub open_slots: Option<u32>,
+        pub distance: Option<LobbyDistanceFilter>,
+        /// Maximum number of lobbies to return.
+        pub result_count: Option<u32>,
     }
 
     #[napi]
@@ -68,6 +133,26 @@ pub mod matchmaking {
         pub fn get_owner(&self) -> PlayerSteamId {
             let client = crate::client::get_client();
             PlayerSteamId::from_steamid(client.matchmaking().lobby_owner(self.lobby_id))
+        }
+
+        /// Transfer lobby ownership to another member. Only the current owner
+        /// may call this, and the target must already be in the lobby.
+        /// Members observe the change through the LobbyDataUpdate callback.
+        #[napi]
+        pub fn set_owner(&self, steam_id64: BigInt) -> bool {
+            // Hold the client so the interface pointer below is valid.
+            let _client = crate::client::get_client();
+            unsafe {
+                let mm = sys::SteamAPI_SteamMatchmaking_v009();
+                if mm.is_null() {
+                    return false;
+                }
+                sys::SteamAPI_ISteamMatchmaking_SetLobbyOwner(
+                    mm,
+                    self.lobby_id.raw(),
+                    steam_id64.get_u64().1,
+                )
+            }
         }
 
         #[napi]
@@ -181,15 +266,27 @@ pub mod matchmaking {
             .map_err(|_| Error::from_reason("Failed to join lobby".to_string()))
     }
 
+    /// Request the list of lobbies visible to this client. Filters are
+    /// applied server-side and must be supplied with the request; they do
+    /// not persist between calls.
     #[napi]
-    pub async fn get_lobbies() -> Result<Vec<Lobby>, Error> {
+    pub async fn get_lobbies(filter: Option<LobbyListFilter>) -> Result<Vec<Lobby>, Error> {
         let client = crate::client::get_client();
 
         let (tx, rx) = oneshot::channel();
 
-        client.matchmaking().request_lobby_list(|lobbies| {
-            tx.send(lobbies).unwrap();
-        });
+        // Scoped so the non-Send Matchmaking handle is dropped before the await.
+        {
+            let matchmaking = client.matchmaking();
+
+            if let Some(filter) = filter {
+                apply_lobby_list_filter(&matchmaking, filter)?;
+            }
+
+            matchmaking.request_lobby_list(|lobbies| {
+                tx.send(lobbies).unwrap();
+            });
+        }
 
         rx.await
             .unwrap()
@@ -203,5 +300,80 @@ pub mod matchmaking {
                     .collect()
             })
             .map_err(|e| Error::from_reason(e.to_string()))
+    }
+
+    fn apply_lobby_list_filter(
+        matchmaking: &Matchmaking,
+        filter: LobbyListFilter,
+    ) -> Result<(), Error> {
+        let key_error = |key: &str| {
+            Error::from_reason(format!(
+                "Lobby filter key \"{key}\" exceeds the maximum key length"
+            ))
+        };
+
+        for f in filter.string_filters.unwrap_or_default() {
+            let key = LobbyKey::try_new(&f.key).map_err(|_| key_error(&f.key))?;
+            matchmaking.add_request_lobby_list_string_filter(StringFilter(
+                key,
+                &f.value,
+                match f.comparison {
+                    LobbyComparison::EqualToOrLessThan => {
+                        steamworks::StringFilterKind::EqualToOrLessThan
+                    }
+                    LobbyComparison::LessThan => steamworks::StringFilterKind::LessThan,
+                    LobbyComparison::Equal => steamworks::StringFilterKind::Equal,
+                    LobbyComparison::GreaterThan => steamworks::StringFilterKind::GreaterThan,
+                    LobbyComparison::EqualToOrGreaterThan => {
+                        steamworks::StringFilterKind::EqualToOrGreaterThan
+                    }
+                    LobbyComparison::NotEqual => steamworks::StringFilterKind::NotEqual,
+                },
+            ));
+        }
+
+        for f in filter.number_filters.unwrap_or_default() {
+            let key = LobbyKey::try_new(&f.key).map_err(|_| key_error(&f.key))?;
+            matchmaking.add_request_lobby_list_numerical_filter(NumberFilter(
+                key,
+                f.value,
+                match f.comparison {
+                    LobbyComparison::EqualToOrLessThan => {
+                        steamworks::ComparisonFilter::LessThanEqualTo
+                    }
+                    LobbyComparison::LessThan => steamworks::ComparisonFilter::LessThan,
+                    LobbyComparison::Equal => steamworks::ComparisonFilter::Equal,
+                    LobbyComparison::GreaterThan => steamworks::ComparisonFilter::GreaterThan,
+                    LobbyComparison::EqualToOrGreaterThan => {
+                        steamworks::ComparisonFilter::GreaterThanEqualTo
+                    }
+                    LobbyComparison::NotEqual => steamworks::ComparisonFilter::NotEqual,
+                },
+            ));
+        }
+
+        for f in filter.near_value_filters.unwrap_or_default() {
+            let key = LobbyKey::try_new(&f.key).map_err(|_| key_error(&f.key))?;
+            matchmaking.add_request_lobby_list_near_value_filter(NearFilter(key, f.value));
+        }
+
+        if let Some(open_slots) = filter.open_slots {
+            matchmaking.set_request_lobby_list_slots_available_filter(open_slots.min(255) as u8);
+        }
+
+        if let Some(distance) = filter.distance {
+            matchmaking.set_request_lobby_list_distance_filter(match distance {
+                LobbyDistanceFilter::Close => DistanceFilter::Close,
+                LobbyDistanceFilter::Default => DistanceFilter::Default,
+                LobbyDistanceFilter::Far => DistanceFilter::Far,
+                LobbyDistanceFilter::Worldwide => DistanceFilter::Worldwide,
+            });
+        }
+
+        if let Some(count) = filter.result_count {
+            matchmaking.set_request_lobby_list_result_count_filter(count as u64);
+        }
+
+        Ok(())
     }
 }
