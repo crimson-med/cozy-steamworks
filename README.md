@@ -21,6 +21,7 @@ A fork of [steamworks.js](https://github.com/ceifa/steamworks.js) maintained for
 | Friends | none | `friends` namespace: `getFriends`, `getFriendName`, `requestUserInformation`, `inviteUserToGame` |
 | Lobby invites | `Lobby.openInviteDialog()` (overlay only) | plus `Lobby.inviteUser(steamId64)` via Steam chat, no overlay needed |
 | Callbacks | up to `MicroTxnAuthorizationResponse` | plus `GameRichPresenceJoinRequested` |
+| Rich presence | `setRichPresence` returns void | returns Steam's accept/reject bool; `clearRichPresence` added |
 
 `init` no longer calls `RequestCurrentStats`. SDK 1.64 removed it: stats and achievements are synchronized by the Steam client before the game process starts, so nothing replaces it.
 
@@ -96,13 +97,13 @@ setInterval(() => {
 Releases are published as tarballs on [GitHub Releases](https://github.com/crimson-med/cozy-steamworks/releases), not on npm. Install by URL:
 
 ```sh
-npm i https://github.com/crimson-med/cozy-steamworks/releases/download/v0.6.0/cozycoast-steamworks.js-0.6.0.tgz
+npm i https://github.com/crimson-med/cozy-steamworks/releases/download/v0.6.1/cozycoast-steamworks.js-0.6.1.tgz
 ```
 
 or in `package.json`:
 
 ```json
-"@cozycoast/steamworks.js": "https://github.com/crimson-med/cozy-steamworks/releases/download/v0.6.0/cozycoast-steamworks.js-0.6.0.tgz"
+"@cozycoast/steamworks.js": "https://github.com/crimson-med/cozy-steamworks/releases/download/v0.6.1/cozycoast-steamworks.js-0.6.1.tgz"
 ```
 
 The prebuilt binaries in `dist/` are only present in the tarball, not in the repository, so a plain git dependency does not work.

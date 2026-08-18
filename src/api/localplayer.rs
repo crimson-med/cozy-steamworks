@@ -23,6 +23,7 @@ impl PlayerSteamId {
 #[napi]
 pub mod localplayer {
     use super::PlayerSteamId;
+    use napi::bindgen_prelude::Error;
 
     #[napi]
     pub fn get_steam_id() -> PlayerSteamId {
@@ -50,9 +51,26 @@ pub mod localplayer {
         client.utils().ip_country()
     }
 
+    /// Set a rich presence key for the local user, or clear it when value is
+    /// null (ISteamFriends::SetRichPresence).
+    /// @returns true if Steam accepted the key/value; false when the key or
+    /// value is too long, there are too many keys, or the key is one Steam
+    /// rejects (for example a malformed steam_display token).
     #[napi]
-    pub fn set_rich_presence(key: String, value: Option<String>) {
+    pub fn set_rich_presence(key: String, value: Option<String>) -> Result<bool, Error> {
+        if key.contains('\0') || value.as_deref().is_some_and(|v| v.contains('\0')) {
+            return Err(Error::from_reason(
+                "Rich presence key or value contains a NUL byte",
+            ));
+        }
         let client = crate::client::get_client();
-        client.friends().set_rich_presence(&key, value.as_deref());
+        Ok(client.friends().set_rich_presence(&key, value.as_deref()))
+    }
+
+    /// Clear every rich presence key for the local user.
+    #[napi]
+    pub fn clear_rich_presence() {
+        let client = crate::client::get_client();
+        client.friends().clear_rich_presence();
     }
 }

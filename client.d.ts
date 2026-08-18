@@ -167,7 +167,16 @@ export declare namespace localplayer {
   export function getLevel(): number
   /** @returns the 2 digit ISO 3166-1-alpha-2 format country code which client is running in, e.g. "US" or "UK". */
   export function getIpCountry(): string
-  export function setRichPresence(key: string, value?: string | undefined | null): void
+  /**
+   * Set a rich presence key for the local user, or clear it when value is
+   * null (ISteamFriends::SetRichPresence).
+   * @returns true if Steam accepted the key/value; false when the key or
+   * value is too long, there are too many keys, or the key is one Steam
+   * rejects (for example a malformed steam_display token).
+   */
+  export function setRichPresence(key: string, value?: string | undefined | null): boolean
+  /** Clear every rich presence key for the local user. */
+  export function clearRichPresence(): void
 }
 export declare namespace matchmaking {
   export const enum LobbyType {

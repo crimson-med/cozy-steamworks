@@ -48,7 +48,15 @@ async function main() {
     const me = id.steamId64
     const name = client.localplayer.getName()
     name ? pass('getName()', name) : fail('getName()')
-    try { client.localplayer.setRichPresence('status', 'cozy smoke'); pass('setRichPresence()') } catch (e) { fail('setRichPresence()', e.message) }
+    try {
+        const rp = client.localplayer.setRichPresence('status', 'cozy smoke')
+        rp === true ? pass('setRichPresence() accepted') : fail('setRichPresence() accepted', String(rp))
+        const cleared = client.localplayer.setRichPresence('status', null)
+        cleared === true ? pass('setRichPresence(null) accepted') : fail('setRichPresence(null) accepted', String(cleared))
+        const tooLong = client.localplayer.setRichPresence('status', 'x'.repeat(300))
+        tooLong === false ? pass('setRichPresence() rejects oversize value', 'false') : fail('setRichPresence() rejects oversize value', String(tooLong))
+        client.localplayer.clearRichPresence(); pass('clearRichPresence()')
+    } catch (e) { fail('setRichPresence()', e.message) }
 
     console.log('achievement / cloud / overlay')
     try {
