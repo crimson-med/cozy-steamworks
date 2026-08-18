@@ -108,16 +108,24 @@ jobs:
                   path: dist
                   if-no-files-found: error
 
-    deploy:
-        # Publish only from this repository, and only for a version tag or a
-        # manual dispatch. An ordinary push to main builds but does not publish.
+    release:
+        # Release only from this repository, and only for a version tag or a
+        # manual dispatch. An ordinary push to main builds but does not release.
         if: ${{ github.repository == 'crimson-med/cozy-steamworks' && (startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch') }}
 
         runs-on: ubuntu-latest
         needs: [build, build-mac]
 
+        permissions:
+            contents: write
+
         steps:
             - uses: actions/checkout@v4
+
+            - name: Setup Node
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.x
 
             - name: Download build
               uses: actions/download-artifact@v4
@@ -126,12 +134,48 @@ jobs:
                   pattern: binaries-*
                   merge-multiple: true
 
-            - name: Log files
+            - name: Verify all targets are present
               run: |
-                  echo "- Root directory:" && ls
-                  echo "- Dist directory:" && ls -R dist
+                  ls -R dist
+                  for f in \
+                      dist/win64/steamworksjs.win32-x64-msvc.node \
+                      dist/linux64/steamworksjs.linux-x64-gnu.node \
+                      dist/osx/steamworksjs.darwin-x64.node \
+                      dist/osx/steamworksjs.darwin-arm64.node; do
+                      test -f "$f" || { echo "missing $f"; exit 1; }
+                  done
 
-            - name: Publish to npm
-              uses: JS-DevTools/npm-publish@v1
-              with:
-                  token: ${{ secrets.NPM_TOKEN }}
+            - name: Resolve version and tag
+              id: meta
+              run: |
+                  VERSION=$(node -p "require('./package.json').version")
+                  if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+                      TAG="${GITHUB_REF_NAME}"
+                      test "$TAG" = "v$VERSION" || { echo "tag $TAG does not match package.json version $VERSION"; exit 1; }
+                  else
+                      TAG="v$VERSION"
+                  fi
+                  echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+                  echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+            - name: Pack tarball
+              id: pack
+              run: |
+                  FILE=$(npm pack --silent)
+                  echo "file=$FILE" >> "$GITHUB_OUTPUT"
+                  tar -tzf "$FILE" | grep -E 'dist/.*\.node$'
+
+            - name: Create GitHub Release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  TAG="${{ steps.meta.outputs.tag }}"
+                  FILE="${{ steps.pack.outputs.file }}"
+                  if gh release view "$TAG" >/dev/null 2>&1; then
+                      gh release upload "$TAG" "$FILE" --clobber
+                  else
+                      gh release create "$TAG" "$FILE" \
+                          --target "$GITHUB_SHA" \
+                          --title "$TAG" \
+                          --notes "Install with: npm i https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/$FILE"
+                  fi

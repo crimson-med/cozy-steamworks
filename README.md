@@ -90,11 +90,19 @@ setInterval(() => {
 
 ## Installation
 
+Releases are published as tarballs on [GitHub Releases](https://github.com/crimson-med/cozy-steamworks/releases), not on npm. Install by URL:
+
 ```sh
-npm i @cozycoast/steamworks.js
+npm i https://github.com/crimson-med/cozy-steamworks/releases/download/v0.5.0/cozycoast-steamworks.js-0.5.0.tgz
 ```
 
-The prebuilt binaries in `dist/` are only present in the npm tarball, not in the repository, so a plain git dependency does not work.
+or in `package.json`:
+
+```json
+"@cozycoast/steamworks.js": "https://github.com/crimson-med/cozy-steamworks/releases/download/v0.5.0/cozycoast-steamworks.js-0.5.0.tgz"
+```
+
+The prebuilt binaries in `dist/` are only present in the tarball, not in the repository, so a plain git dependency does not work.
 
 ### Electron
 
@@ -120,7 +128,9 @@ npm run build          # release build for the current target, regenerates clien
 npm run build:debug
 ```
 
-CI builds `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`, and `aarch64-apple-darwin`. Publishing to npm runs only for a `v*` tag or a manual workflow dispatch on this repository, never on an ordinary push.
+CI builds `x86_64-pc-windows-msvc`, `x86_64-unknown-linux-gnu`, `x86_64-apple-darwin`, and `aarch64-apple-darwin` on every push to `main` and every pull request. A GitHub Release with the packed tarball is created only for a `v*` tag matching `package.json`, or a manual workflow dispatch.
+
+To cut a release: bump `version` in `package.json` and `package-lock.json`, merge to `main`, then push a `vX.Y.Z` tag.
 
 ### Testing
 
