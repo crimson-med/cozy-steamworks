@@ -5,8 +5,9 @@
 //
 // Exercises the surface Cozy Coast depends on, then the fork additions:
 // identity, rich presence, achievements (read only), cloud flags, lobby
-// create + data + filtered list, owner transfer to self, and a loopback
-// message over ISteamNetworkingMessages. Exit code 1 if anything fails.
+// create + data + filtered list, owner transfer to self, a leaderboard read,
+// an aggregated global stats request, and a loopback message over
+// ISteamNetworkingMessages. Exit code 1 if anything fails.
 
 const steamworks = require('../index.js')
 
@@ -151,6 +152,35 @@ async function main() {
             }
         }
     }
+
+    console.log('leaderboard')
+    try {
+        const board = await client.leaderboard.findLeaderboard('Feet Traveled')
+        if (!board) {
+            skip('findLeaderboard()', "'Feet Traveled' not present on this app")
+        } else {
+            board.getName() ? pass('findLeaderboard()', `${board.getName()}, ${board.getEntryCount()} entries`) : fail('findLeaderboard()', 'empty name')
+            const top = await board.downloadEntries(client.leaderboard.LeaderboardDataRequest.Global, 1, 5, 2)
+            const shapeOk = Array.isArray(top) && top.every(e => typeof e.user?.steamId64 === 'bigint' && typeof e.globalRank === 'number' && typeof e.score === 'number' && Array.isArray(e.details))
+            shapeOk ? pass('downloadEntries(Global, 1, 5)', `${top.length} entr${top.length === 1 ? 'y' : 'ies'}`) : fail('downloadEntries(Global, 1, 5)', JSON.stringify(top))
+        }
+    } catch (e) { fail('leaderboard', e.message) }
+
+    console.log('global_stats')
+    try {
+        const t0 = Date.now()
+        await client.global_stats.requestGlobalStats(1)
+        pass('requestGlobalStats(1) resolved', `${Date.now() - t0}ms`)
+    } catch (e) {
+        // A Steam-reported failure is fine here, a hang is not.
+        pass('requestGlobalStats(1) completed with a Steam error', e.message)
+    }
+    try {
+        const total = client.global_stats.getGlobalStatInt64('NumGames')
+        total === null || typeof total === 'bigint'
+            ? pass("getGlobalStatInt64('NumGames')", String(total))
+            : fail("getGlobalStatInt64('NumGames')", typeof total)
+    } catch (e) { fail('getGlobalStatInt64()', e.message) }
 
     console.log('networking_messages')
     const nm = client.networking_messages

@@ -22,6 +22,8 @@ A fork of [steamworks.js](https://github.com/ceifa/steamworks.js) maintained for
 | Lobby invites | `Lobby.openInviteDialog()` (overlay only) | plus `Lobby.inviteUser(steamId64)` via Steam chat, no overlay needed |
 | Callbacks | up to `MicroTxnAuthorizationResponse` | plus `GameRichPresenceJoinRequested` |
 | Rich presence | `setRichPresence` returns void | returns Steam's accept/reject bool; `clearRichPresence` added |
+| Leaderboards | none | `leaderboard` namespace: find, find-or-create, score upload, and entry download for global, around-user, and friends ranges |
+| Global stats | none | `global_stats` namespace: aggregated lifetime totals and day-by-day history for stats marked as aggregated |
 
 `init` no longer calls `RequestCurrentStats`. SDK 1.64 removed it: stats and achievements are synchronized by the Steam client before the game process starts, so nothing replaces it.
 
@@ -92,18 +94,54 @@ setInterval(() => {
 
 `setAllowAllSessions(true)` accepts every incoming session and is intended for private playtests only. `getSessionConnectionInfo(steamId64)` reports the session state, ping, delivery quality, and whether the route is relayed.
 
+### Leaderboards
+
+Leaderboard handles are only valid for the current Steam session, so look one up by name each run rather than storing its id.
+
+```js
+const lb = client.leaderboard
+const board = await lb.findLeaderboard('Feet Traveled')
+// or create it on first use:
+// const board = await lb.findOrCreateLeaderboard('speedrun', lb.LeaderboardSortMethod.Ascending, lb.LeaderboardDisplayType.TimeMilliSeconds)
+
+await board.uploadScore(lb.UploadScoreMethod.KeepBest, 4200, [level, seed])
+
+// Absolute 1 based ranks.
+const top10 = await board.downloadEntries(lb.LeaderboardDataRequest.Global, 1, 10, 2)
+// Offsets relative to your own rank, so this is your row plus four above and five below.
+const around = await board.downloadEntries(lb.LeaderboardDataRequest.GlobalAroundUser, -4, 5, 2)
+const friends = await board.downloadEntries(lb.LeaderboardDataRequest.Friends, 0, 0)
+```
+
+`details` is an optional payload of at most 64 ints stored with the score, and is only read back when a non-zero `maxDetails` is passed to `downloadEntries`. Steam rate limits uploads to roughly 10 per 10 minutes per user.
+
+### Global stats
+
+Only stats marked as aggregated in the Steamworks App Admin are readable here. Steam starts aggregating from the moment that is switched on and the totals trail live play by roughly a day, so this is not real time data.
+
+```js
+// Totals, plus seven days of day-by-day history. Resolve before reading.
+await client.global_stats.requestGlobalStats(7)
+
+const total = client.global_stats.getGlobalStatInt64('NumGames')     // bigint or null
+const rate = client.global_stats.getGlobalStatDouble('Distance')     // number or null
+const daily = client.global_stats.getGlobalStatHistoryInt64('NumGames', 7)  // index 0 is today
+```
+
+The getters return `null` and `[]` until the request resolves, and keep returning them when the stat is not aggregated for the app.
+
 ## Installation
 
 Releases are published as tarballs on [GitHub Releases](https://github.com/crimson-med/cozy-steamworks/releases), not on npm. Install by URL:
 
 ```sh
-npm i https://github.com/crimson-med/cozy-steamworks/releases/download/v0.6.1/cozycoast-steamworks.js-0.6.1.tgz
+npm i https://github.com/crimson-med/cozy-steamworks/releases/download/v0.7.0/cozycoast-steamworks.js-0.7.0.tgz
 ```
 
 or in `package.json`:
 
 ```json
-"@cozycoast/steamworks.js": "https://github.com/crimson-med/cozy-steamworks/releases/download/v0.6.1/cozycoast-steamworks.js-0.6.1.tgz"
+"@cozycoast/steamworks.js": "https://github.com/crimson-med/cozy-steamworks/releases/download/v0.7.0/cozycoast-steamworks.js-0.7.0.tgz"
 ```
 
 The prebuilt binaries in `dist/` are only present in the tarball, not in the repository, so a plain git dependency does not work.
@@ -138,8 +176,10 @@ To cut a release: bump `version` in `package.json` and `package-lock.json`, merg
 
 ### Testing
 
-- `node test/smoke.js` runs a single-machine check against a running Steam client (app 480): identity, lobby create and filtered list, self-owner transfer, friends list, loopback message. `SMOKE_INVITE=1` additionally sends a real lobby invite to your first friend.
+- `node test/smoke.js` runs a single-machine check against a running Steam client (app 480): identity, lobby create and filtered list, self-owner transfer, friends list, leaderboard read, global stats request, loopback message. `SMOKE_INVITE=1` additionally sends a real lobby invite to your first friend.
 - `node test/friends.js` prints the friends list and checks its shape.
+- `node test/leaderboard.js` exercises the leaderboard surface against the Spacewar sample board, including a score upload.
+- `node test/global_stats.js` requests aggregated global stats and checks the getter return types.
 - `node test/networking_messages.js` on two machines exercises a real peer session.
 - `test/electron` runs the upstream Electron overlay test.
 

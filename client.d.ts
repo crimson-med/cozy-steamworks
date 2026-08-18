@@ -125,6 +125,49 @@ export declare namespace friends {
    */
   export function inviteUserToGame(steamId64: bigint, connectString: string): void
 }
+export declare namespace global_stats {
+  /**
+   * Request the aggregated global totals for this app's global stats, plus
+   * `historyDays` days of day-by-day history.
+   *
+   * A stat is only readable here when it is marked as aggregated in the
+   * Steamworks App Admin. Steam starts aggregating from the moment that is
+   * switched on and the totals trail live play by roughly a day, so this is
+   * not real time data.
+   *
+   * `historyDays` is clamped to 60, the SDK maximum. Pass 0 for totals only.
+   * The getters below return nothing until this resolves.
+   *
+   * Steam reports a per-request EResult that the underlying crate does not
+   * surface, so this resolves for any request Steam answered, including one
+   * it answered with a failure. An app with no aggregated stats therefore
+   * resolves here and reads back null and empty arrays. Rejection means the
+   * request itself never completed.
+   */
+  export function requestGlobalStats(historyDays: number): Promise<void>
+  /**
+   * The aggregated lifetime total of an INT global stat.
+   * @returns null when the stat is not aggregated, is not an INT stat, or
+   * `requestGlobalStats` has not resolved yet.
+   */
+  export function getGlobalStatInt64(name: string): bigint | null
+  /**
+   * The aggregated lifetime total of a FLOAT or AVGRATE global stat.
+   * @returns null when the stat is not aggregated, is not a float stat, or
+   * `requestGlobalStats` has not resolved yet.
+   */
+  export function getGlobalStatDouble(name: string): number | null
+  /**
+   * Day-by-day history for an INT global stat, most recent day first, so
+   * index 0 is today and index 1 is yesterday.
+   *
+   * `days` is clamped to 60 and should not exceed the `historyDays` passed
+   * to `requestGlobalStats`. The result is only as long as the number of
+   * days Steam actually returned, and is empty when the stat is not
+   * aggregated or the request has not resolved.
+   */
+  export function getGlobalStatHistoryInt64(name: string, days: number): Array<bigint>
+}
 export declare namespace input {
   export const enum InputType {
     Unknown = 'Unknown',
@@ -159,6 +202,127 @@ export declare namespace input {
     getAnalogActionVector(actionHandle: bigint): AnalogActionVector
     getType(): InputType
     getHandle(): bigint
+  }
+}
+export declare namespace leaderboard {
+  /** Order Steam uses to rank scores (ELeaderboardSortMethod). */
+  export const enum LeaderboardSortMethod {
+    /** Lower scores rank higher, the usual choice for times. */
+    Ascending = 0,
+    /** Higher scores rank higher, the usual choice for points. */
+    Descending = 1
+  }
+  /** How the Steam UI formats a score (ELeaderboardDisplayType). */
+  export const enum LeaderboardDisplayType {
+    Numeric = 0,
+    TimeSeconds = 1,
+    TimeMilliSeconds = 2
+  }
+  /**
+   * What to do when the uploaded score is worse than the stored one
+   * (ELeaderboardUploadScoreMethod).
+   */
+  export const enum UploadScoreMethod {
+    /** Keep the existing score if the new one does not beat it. */
+    KeepBest = 0,
+    /** Always replace the existing score. */
+    ForceUpdate = 1
+  }
+  /** Which slice of the leaderboard to download (ELeaderboardDataRequest). */
+  export const enum LeaderboardDataRequest {
+    /** Absolute ranks, 1 based. */
+    Global = 0,
+    /** Ranks relative to the local user's own rank. */
+    GlobalAroundUser = 1,
+    /** Only entries belonging to the user's friends. */
+    Friends = 2
+  }
+  export interface LeaderboardEntry {
+    user: PlayerSteamId
+    /** 1 based rank in the leaderboard. */
+    globalRank: number
+    score: number
+    /**
+     * Game defined payload stored with the score. Empty unless the entry
+     * was downloaded with a non-zero `maxDetails`.
+     */
+    details: Array<number>
+  }
+  export interface LeaderboardScoreUploaded {
+    /** The score Steam ended up storing. */
+    score: number
+    /**
+     * Whether the stored score actually changed. False when `KeepBest`
+     * discarded the upload because the old score was better.
+     */
+    wasChanged: boolean
+    globalRankNew: number
+    globalRankPrevious: number
+  }
+  /**
+   * Look up an existing leaderboard by its Steamworks name.
+   * @returns null when no leaderboard with that name exists.
+   */
+  export function findLeaderboard(name: string): Promise<Leaderboard | null>
+  /**
+   * Look up a leaderboard, creating it if it does not exist yet.
+   *
+   * Leaderboards created this way are owned by the app and are not visible
+   * in the Steamworks partner site until the app is published. The sort
+   * method and display type only apply when the leaderboard is created;
+   * an existing leaderboard keeps its configured values.
+   * @returns null when Steam neither found nor created the leaderboard.
+   */
+  export function findOrCreateLeaderboard(name: string, sortMethod: LeaderboardSortMethod, displayType: LeaderboardDisplayType): Promise<Leaderboard | null>
+  /**
+   * A handle to a Steam leaderboard, returned by `findLeaderboard` or
+   * `findOrCreateLeaderboard`. Handles are only valid for the lifetime of
+   * the Steam session, so store the leaderboard name, not the id.
+   */
+  export class Leaderboard {
+    /** Raw SteamLeaderboard_t handle. Diagnostic only. */
+    id: bigint
+    /**
+     * The leaderboard name as configured on Steamworks. Empty string if
+     * the handle is invalid.
+     */
+    getName(): string
+    /**
+     * Total number of entries in the leaderboard. 0 if the handle is
+     * invalid.
+     */
+    getEntryCount(): number
+    /** Null if the handle is invalid or Steam reports an unknown method. */
+    getSortMethod(): LeaderboardSortMethod | null
+    /** Null if the handle is invalid or Steam reports an unknown type. */
+    getDisplayType(): LeaderboardDisplayType | null
+    /**
+     * Upload a score for the local user.
+     *
+     * `details` is an optional game defined payload of at most 64 ints,
+     * stored alongside the score and returned by `downloadEntries` when a
+     * non-zero `maxDetails` is passed. Steam rate limits uploads to
+     * roughly 10 per 10 minutes per user.
+     *
+     * @returns the stored result, or null when Steam reported the upload
+     * as unsuccessful.
+     */
+    uploadScore(method: UploadScoreMethod, score: number, details?: Array<number> | undefined | null): Promise<LeaderboardScoreUploaded | null>
+    /**
+     * Download a slice of the leaderboard.
+     *
+     * For `Global`, `start` and `end` are absolute 1 based ranks, so
+     * `1, 10` is the top ten. For `GlobalAroundUser` they are offsets
+     * relative to the local user's own rank and may be negative, so
+     * `-4, 5` is the user's row plus four above and five below. For
+     * `Friends` the range is ignored and Steam returns every friend.
+     *
+     * Steam returns at most 5000 entries per request.
+     *
+     * `maxDetails` is how many detail ints to read back per entry, at
+     * most 64. Defaults to 0, which skips details entirely.
+     */
+    downloadEntries(request: LeaderboardDataRequest, start: number, end: number, maxDetails?: number | undefined | null): Promise<Array<LeaderboardEntry>>
   }
 }
 export declare namespace localplayer {
