@@ -4,6 +4,9 @@
 // Machine B: run and paste that lobby id when prompted.
 // Both then type lines; each line is sent Reliable on channel 0 to every
 // other lobby member and printed on receipt.
+//
+// Commands: /friends lists friends, /invite <steamId64> sends a lobby invite
+// through Steam chat (no overlay needed), /info prints session state.
 
 const rl = require('readline');
 const { init, SteamCallback } = require('../index.js')
@@ -24,8 +27,17 @@ client.networking_messages.initSessionCallbacks(
     },
 )
 
-// Keep the handle alive: dropping it unregisters the callback.
+// Keep the handles alive: dropping one unregisters its callback.
 let lobbyChatUpdateHandle
+const joinRequestedHandle = client.callback.register(SteamCallback.GameLobbyJoinRequested, ({ lobby_steam_id, friend_steam_id }) => {
+    console.log(`GameLobbyJoinRequested: lobby ${lobby_steam_id} from ${friend_steam_id} (invite accepted while running)`)
+})
+const richPresenceJoinHandle = client.callback.register(SteamCallback.GameRichPresenceJoinRequested, ({ friend_steam_id, connect }) => {
+    console.log(`GameRichPresenceJoinRequested: "${connect}" from ${friend_steam_id}`)
+})
+if (process.argv.some(a => a.startsWith('+connect_lobby'))) {
+    console.log(`Launched with ${process.argv.filter(a => a.includes('connect_lobby')).join(' ')} (invite accepted while not running)`)
+}
 
 const rlInterface = rl.createInterface({
     input: process.stdin,
@@ -86,7 +98,16 @@ rlInterface.question('Enter a lobby id or press enter to create one: ', async lo
     let askChatMessage
     askChatMessage = () => {
         rlInterface.question(client.localplayer.getName() + ': ', line => {
-            if (line === '/info') {
+            if (line.startsWith('/invite ')) {
+                try {
+                    const target = BigInt(line.slice('/invite '.length).trim())
+                    console.log(`inviteUser(${target}): ${lobby.inviteUser(target)}`)
+                } catch (e) {
+                    console.log(`usage: /invite <steamId64> (${e.message})`)
+                }
+            } else if (line === '/friends') {
+                client.friends.getFriends().forEach(f => console.log(`  ${f.name} ${f.steamId.steamId64} state=${f.state}${f.playingAppId ? ` app=${f.playingAppId}` : ''}`))
+            } else if (line === '/info') {
                 lobby.getMembers().forEach(peer => {
                     if (peer.steamId64 !== me) {
                         console.log(peer.steamId64, client.networking_messages.getSessionConnectionInfo(peer.steamId64))

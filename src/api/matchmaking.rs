@@ -155,6 +155,28 @@ pub mod matchmaking {
             }
         }
 
+        /// Invite a friend to this lobby (ISteamMatchmaking::InviteUserToLobby).
+        /// The friend gets a Steam chat invite; accepting launches the game
+        /// with `+connect_lobby <id>` or fires GameLobbyJoinRequested when it
+        /// is already running. Works without the overlay.
+        /// @returns true if the invite was sent
+        #[napi]
+        pub fn invite_user(&self, steam_id64: BigInt) -> bool {
+            // Hold the client so the interface pointer below is valid.
+            let _client = crate::client::get_client();
+            unsafe {
+                let mm = sys::SteamAPI_SteamMatchmaking_v009();
+                if mm.is_null() {
+                    return false;
+                }
+                sys::SteamAPI_ISteamMatchmaking_InviteUserToLobby(
+                    mm,
+                    self.lobby_id.raw(),
+                    steam_id64.get_u64().1,
+                )
+            }
+        }
+
         #[napi]
         pub fn set_joinable(&self, joinable: bool) -> bool {
             let client = crate::client::get_client();

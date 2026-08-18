@@ -18,6 +18,9 @@ A fork of [steamworks.js](https://github.com/ceifa/steamworks.js) maintained for
 | Workshop / UGC | `workshop` module | removed |
 | `runCallbacks` | internal only | also exported for manual pumping |
 | `callbacks.d.ts` | `member_state_change` typed as a number | typed as the variant name string it actually is |
+| Friends | none | `friends` namespace: `getFriends`, `getFriendName`, `requestUserInformation`, `inviteUserToGame` |
+| Lobby invites | `Lobby.openInviteDialog()` (overlay only) | plus `Lobby.inviteUser(steamId64)` via Steam chat, no overlay needed |
+| Callbacks | up to `MicroTxnAuthorizationResponse` | plus `GameRichPresenceJoinRequested` |
 
 `init` no longer calls `RequestCurrentStats`. SDK 1.64 removed it: stats and achievements are synchronized by the Steam client before the game process starts, so nothing replaces it.
 
@@ -93,13 +96,13 @@ setInterval(() => {
 Releases are published as tarballs on [GitHub Releases](https://github.com/crimson-med/cozy-steamworks/releases), not on npm. Install by URL:
 
 ```sh
-npm i https://github.com/crimson-med/cozy-steamworks/releases/download/v0.5.0/cozycoast-steamworks.js-0.5.0.tgz
+npm i https://github.com/crimson-med/cozy-steamworks/releases/download/v0.6.0/cozycoast-steamworks.js-0.6.0.tgz
 ```
 
 or in `package.json`:
 
 ```json
-"@cozycoast/steamworks.js": "https://github.com/crimson-med/cozy-steamworks/releases/download/v0.5.0/cozycoast-steamworks.js-0.5.0.tgz"
+"@cozycoast/steamworks.js": "https://github.com/crimson-med/cozy-steamworks/releases/download/v0.6.0/cozycoast-steamworks.js-0.6.0.tgz"
 ```
 
 The prebuilt binaries in `dist/` are only present in the tarball, not in the repository, so a plain git dependency does not work.
@@ -134,7 +137,8 @@ To cut a release: bump `version` in `package.json` and `package-lock.json`, merg
 
 ### Testing
 
-- `node test/smoke.js` runs a single-machine check against a running Steam client (app 480): identity, lobby create and filtered list, self-owner transfer, loopback message.
+- `node test/smoke.js` runs a single-machine check against a running Steam client (app 480): identity, lobby create and filtered list, self-owner transfer, friends list, loopback message. `SMOKE_INVITE=1` additionally sends a real lobby invite to your first friend.
+- `node test/friends.js` prints the friends list and checks its shape.
 - `node test/networking_messages.js` on two machines exercises a real peer session.
 - `test/electron` runs the upstream Electron overlay test.
 

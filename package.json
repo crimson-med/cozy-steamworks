@@ -1,6 +1,6 @@
 {
     "name": "@cozycoast/steamworks.js",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "main": "index.js",
     "types": "index.d.ts",
     "napi": {
@@ -34,7 +34,7 @@
         "node": ">= 14"
     },
     "scripts": {
-        "build": "npm run types && node build --release",
+        "build": "node build --release",
         "build:debug": "node build",
         "prune": "rimraf dist target client.d.ts",
         "format": "cargo clippy --fix --allow-staged && cargo fmt",

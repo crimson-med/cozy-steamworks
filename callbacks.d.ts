@@ -49,11 +49,24 @@ export interface CallbackReturns {
     }
     [client.callback.SteamCallback.GameLobbyJoinRequested]: {
         lobby_steam_id: bigint
-        friend_steam_id: bigint
+        /**
+         * The friend the join came through. Delivered as a JS number 0 when
+         * there was no friend (ids only become bigint above 2^53).
+         */
+        friend_steam_id: bigint | number
     }
     [client.callback.SteamCallback.MicroTxnAuthorizationResponse]: {
         app_id: number
         order_id: number | bigint
         authorized: boolean
+    }
+    [client.callback.SteamCallback.GameRichPresenceJoinRequested]: {
+        /**
+         * The inviting friend. Delivered as a JS number 0 when the join did
+         * not come from a friend (ids only become bigint above 2^53).
+         */
+        friend_steam_id: bigint | number
+        /** The connect string, e.g. "+connect_lobby 1097752425246" */
+        connect: string
     }
 }

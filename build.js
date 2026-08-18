@@ -51,8 +51,13 @@ const params = [
 ]
 
 child_process.spawn('napi', params, { stdio: 'inherit', shell: true })
-    .on('exit', err => {
-        if (err) {
-            throw err;
+    .on('exit', code => {
+        if (code) {
+            process.exit(code)
         }
+        // Regenerate index.d.ts after client.d.ts so the type check sees the
+        // freshly emitted declarations. Runs from the build to keep
+        // `npm run build -- --target X` routing the target to this script.
+        child_process.spawn('npm', ['run', 'types'], { stdio: 'inherit', shell: true })
+            .on('exit', typesCode => process.exit(typesCode || 0))
     })

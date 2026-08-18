@@ -114,6 +114,36 @@ async function main() {
         lobby.setOwner(me) ? pass('setOwner(self)') : fail('setOwner(self)')
     }
 
+    console.log('friends')
+    let friends = []
+    try {
+        friends = client.friends.getFriends()
+        const shapeOk = friends.every(f => typeof f.steamId?.steamId64 === 'bigint' && typeof f.name === 'string' && typeof f.state === 'number' && typeof f.playingAppId === 'number')
+        shapeOk ? pass('getFriends() shape', `${friends.length} friend(s)`) : fail('getFriends() shape')
+    } catch (e) { fail('getFriends()', e.message) }
+    client.friends.getFriendName(me) === name ? pass('getFriendName(self)') : fail('getFriendName(self)', client.friends.getFriendName(me))
+    if (lobby) {
+        // Sends a real Steam chat invite to a friend, so opt in with
+        // SMOKE_INVITE=1 (or SMOKE_INVITE=<steamId64> to pick the friend).
+        const inviteOpt = process.env.SMOKE_INVITE
+        if (!inviteOpt) {
+            skip('lobby.inviteUser(friend)', 'set SMOKE_INVITE=1 to send a real invite to a friend')
+        } else if (!friends.length) {
+            skip('lobby.inviteUser(friend)', 'no friends on this account')
+        } else {
+            const target = inviteOpt === '1'
+                ? friends[0]
+                : friends.find(f => String(f.steamId.steamId64) === inviteOpt)
+            if (!target) {
+                skip('lobby.inviteUser(friend)', `SMOKE_INVITE=${inviteOpt} is not in the friends list`)
+            } else {
+                // Steam may throttle invites, so only the type is asserted.
+                const r = lobby.inviteUser(target.steamId.steamId64)
+                typeof r === 'boolean' ? pass('lobby.inviteUser(friend) returns boolean', `${target.name}: ${r}`) : fail('lobby.inviteUser(friend)', typeof r)
+            }
+        }
+    }
+
     console.log('networking_messages')
     const nm = client.networking_messages
     const CHANNEL = 7

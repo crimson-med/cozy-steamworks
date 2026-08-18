@@ -56,7 +56,8 @@ export declare namespace callback {
     P2PSessionRequest = 6,
     P2PSessionConnectFail = 7,
     GameLobbyJoinRequested = 8,
-    MicroTxnAuthorizationResponse = 9
+    MicroTxnAuthorizationResponse = 9,
+    GameRichPresenceJoinRequested = 10
   }
   export function register<C extends keyof import('./callbacks').CallbackReturns>(steamCallback: C, handler: (value: import('./callbacks').CallbackReturns[C]) => void): Handle
   export class Handle {
@@ -76,6 +77,53 @@ export declare namespace cloud {
     name: string
     size: bigint
   }
+}
+export declare namespace friends {
+  /**
+   * Mirrors steamworks::FriendState. Values follow declaration order here,
+   * not the SDK's EPersonaState numbering.
+   */
+  export const enum FriendState {
+    Offline = 0,
+    Online = 1,
+    Invisible = 2,
+    Busy = 3,
+    Away = 4,
+    Snooze = 5,
+    LookingToTrade = 6,
+    LookingToPlay = 7
+  }
+  export interface FriendInfo {
+    steamId: PlayerSteamId
+    name: string
+    state: FriendState
+    /** App id the friend is currently playing, 0 when not in a game. */
+    playingAppId: number
+  }
+  /**
+   * The local user's immediate friends (FriendFlags::IMMEDIATE), with
+   * their online state and the app they are in.
+   */
+  export function getFriends(): Array<FriendInfo>
+  /**
+   * Persona name of any Steam user. Steam returns a placeholder such as
+   * "[unknown]" when it has not cached the user; call
+   * requestUserInformation first for users who are not friends.
+   */
+  export function getFriendName(steamId64: bigint): string
+  /**
+   * Ask Steam to fetch a user's persona name/avatar. Returns true when a
+   * fetch was started (PersonaStateChange fires when it lands), false when
+   * the data is already cached.
+   */
+  export function requestUserInformation(steamId64: bigint, nameOnly: boolean): boolean
+  /**
+   * Invite a friend to the running game with a connect string
+   * (ISteamFriends::InviteUserToGame). Accepting adds the string to the
+   * game's command line, or delivers GameRichPresenceJoinRequested when
+   * the game is already running. Does not need the overlay.
+   */
+  export function inviteUserToGame(steamId64: bigint, connectString: string): void
 }
 export declare namespace input {
   export const enum InputType {
@@ -205,6 +253,14 @@ export declare namespace matchmaking {
      * Members observe the change through the LobbyDataUpdate callback.
      */
     setOwner(steamId64: bigint): boolean
+    /**
+     * Invite a friend to this lobby (ISteamMatchmaking::InviteUserToLobby).
+     * The friend gets a Steam chat invite; accepting launches the game
+     * with `+connect_lobby <id>` or fires GameLobbyJoinRequested when it
+     * is already running. Works without the overlay.
+     * @returns true if the invite was sent
+     */
+    inviteUser(steamId64: bigint): boolean
     setJoinable(joinable: boolean): boolean
     getData(key: string): string | null
     setData(key: string, value: string): boolean
