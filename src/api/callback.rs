@@ -34,6 +34,35 @@ pub mod callback {
         }
     }
 
+    /// Local mirror of steamworks::ScreenshotReady. The crate's version does
+    /// not derive Serialize and folds the EResult into Ok/Fail. This forwards
+    /// the raw EResult number instead. It is read straight from memory rather
+    /// than through the bindgen EResult enum, because a value that enum does
+    /// not list would be undefined behaviour inside SteamAPI_RunCallbacks.
+    #[derive(serde::Serialize)]
+    struct ScreenshotReady {
+        handle: u32,
+        result: i32,
+    }
+
+    unsafe impl steamworks::Callback for ScreenshotReady {
+        const ID: i32 = steamworks::sys::ScreenshotReady_t_k_iCallback as i32;
+
+        unsafe fn from_raw(raw: *mut std::ffi::c_void) -> Self {
+            use steamworks::sys::ScreenshotReady_t;
+            let base = raw.cast::<u8>();
+            let handle = base
+                .add(std::mem::offset_of!(ScreenshotReady_t, m_hLocal))
+                .cast::<u32>()
+                .read_unaligned();
+            let result = base
+                .add(std::mem::offset_of!(ScreenshotReady_t, m_eResult))
+                .cast::<i32>()
+                .read_unaligned();
+            Self { handle, result }
+        }
+    }
+
     #[napi]
     pub struct Handle {
         handle: Option<steamworks::CallbackHandle>,
@@ -61,6 +90,7 @@ pub mod callback {
         GameLobbyJoinRequested,
         MicroTxnAuthorizationResponse,
         GameRichPresenceJoinRequested,
+        ScreenshotReady,
     }
 
     #[napi(ts_generic_types = "C extends keyof import('./callbacks').CallbackReturns")]
@@ -106,6 +136,9 @@ pub mod callback {
             }
             SteamCallback::GameRichPresenceJoinRequested => {
                 register_callback::<GameRichPresenceJoinRequested>(threadsafe_handler)
+            }
+            SteamCallback::ScreenshotReady => {
+                register_callback::<ScreenshotReady>(threadsafe_handler)
             }
         };
 

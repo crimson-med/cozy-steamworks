@@ -57,7 +57,8 @@ export declare namespace callback {
     P2PSessionConnectFail = 7,
     GameLobbyJoinRequested = 8,
     MicroTxnAuthorizationResponse = 9,
-    GameRichPresenceJoinRequested = 10
+    GameRichPresenceJoinRequested = 10,
+    ScreenshotReady = 11
   }
   export function register<C extends keyof import('./callbacks').CallbackReturns>(steamCallback: C, handler: (value: import('./callbacks').CallbackReturns[C]) => void): Handle
   export class Handle {
@@ -634,6 +635,28 @@ export declare namespace overlay {
   export function activateInviteDialog(lobbyId: bigint): void
   export function activateToWebPage(url: string): void
   export function activateToStore(appId: number, flag: StoreFlag): void
+}
+export declare namespace screenshots {
+  /**
+   * Add an image file on disk to the user's Steam screenshot library
+   * (ISteamScreenshots::AddScreenshotToLibrary). The path must be absolute.
+   * JPG, PNG or TGA. No thumbnail: pass none and Steam generates one.
+   * The write is asynchronous; ScreenshotReady fires when it completes.
+   * @returns the local screenshot handle, or null if Steam refused the file
+   */
+  export function addToLibrary(path: string, width: number, height: number): number | null
+  /**
+   * Caption a screenshot with a location (ISteamScreenshots::SetLocation),
+   * e.g. "Deep Sea". Call after ScreenshotReady for that handle.
+   * @returns Steam's accepted flag
+   */
+  export function setLocation(handle: number, location: string): boolean
+  /**
+   * Tag a Steam user as appearing in a screenshot (ISteamScreenshots::TagUser).
+   * Call after ScreenshotReady for that handle. May be called several times.
+   * @returns Steam's accepted flag
+   */
+  export function tagUser(handle: number, steamId64: bigint): boolean
 }
 export declare namespace stats {
   export function getInt(name: string): number | null

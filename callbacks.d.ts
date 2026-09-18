@@ -69,4 +69,10 @@ export interface CallbackReturns {
         /** The connect string, e.g. "+connect_lobby 1097752425246" */
         connect: string
     }
+    [client.callback.SteamCallback.ScreenshotReady]: {
+        /** The handle returned by screenshots.addToLibrary. */
+        handle: number
+        /** Raw EResult. 1 (k_EResultOK) means written and taggable. */
+        result: number
+    }
 }

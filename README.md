@@ -20,10 +20,11 @@ A fork of [steamworks.js](https://github.com/ceifa/steamworks.js) maintained for
 | `callbacks.d.ts` | `member_state_change` typed as a number | typed as the variant name string it actually is |
 | Friends | none | `friends` namespace: `getFriends`, `getFriendName`, `requestUserInformation`, `inviteUserToGame` |
 | Lobby invites | `Lobby.openInviteDialog()` (overlay only) | plus `Lobby.inviteUser(steamId64)` via Steam chat, no overlay needed |
-| Callbacks | up to `MicroTxnAuthorizationResponse` | plus `GameRichPresenceJoinRequested` |
+| Callbacks | up to `MicroTxnAuthorizationResponse` | plus `GameRichPresenceJoinRequested` and `ScreenshotReady` (raw EResult) |
 | Rich presence | `setRichPresence` returns void | returns Steam's accept/reject bool; `clearRichPresence` added |
 | Leaderboards | none | `leaderboard` namespace: find, find-or-create, score upload, and entry download for global, around-user, and friends ranges |
 | Global stats | none | `global_stats` namespace: aggregated lifetime totals and day-by-day history for stats marked as aggregated |
+| Screenshots | none | `screenshots` namespace: `addToLibrary` for a game-rendered image on disk, `setLocation`, `tagUser`. No overlay needed |
 
 `init` no longer calls `RequestCurrentStats`. SDK 1.64 removed it: stats and achievements are synchronized by the Steam client before the game process starts, so nothing replaces it.
 
@@ -180,6 +181,7 @@ To cut a release: bump `version` in `package.json` and `package-lock.json`, merg
 - `node test/friends.js` prints the friends list and checks its shape.
 - `node test/leaderboard.js` exercises the leaderboard surface against the Spacewar sample board. `LEADERBOARD_UPLOAD=1` additionally writes a real score, which counts against Steam's roughly 10 uploads per 10 minutes per user.
 - `node test/global_stats.js` requests aggregated global stats and checks the getter return types.
+- `node test/screenshots.js` checks that bad paths and a bogus handle are refused without throwing. `SCREENSHOT_UPLOAD=1` additionally adds a generated PNG to the real Steam screenshot library, waits for `ScreenshotReady`, then sets a location and tags the local user.
 - `node test/networking_messages.js` on two machines exercises a real peer session.
 - `test/electron` runs the upstream Electron overlay test.
 
